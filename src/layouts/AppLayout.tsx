@@ -8,6 +8,9 @@ import {
   ChevronDown,
   Search,
   Plus,
+  Pencil,
+  Trash2,
+  X,
   Home,
   Zap,
   Bot,
@@ -56,6 +59,7 @@ export default function AppLayout() {
     currentProject,
     platforms,
     setCurrentProject,
+    setPlatformProjects,
     addProjectToPlatform,
     restore: restoreCtx,
     clear: clearCtx,
@@ -76,6 +80,14 @@ export default function AppLayout() {
   const [isInviting, setIsInviting] = useState(false);
   const [isScopeDropdownOpen, setIsScopeDropdownOpen] = useState(false);
   const [isRoleDropdownOpen, setIsRoleDropdownOpen] = useState(false);
+  const [isDeleteProjectOpen, setIsDeleteProjectOpen] = useState(false);
+  const [projectToDelete, setProjectToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [isDeletingProject, setIsDeletingProject] = useState(false);
+  const [isEditingProject, setIsEditingProject] = useState(false);
+  const [editProjectId, setEditProjectId] = useState<string | null>(null);
+  const [editOriginalName, setEditOriginalName] = useState<string>("");
+  const [editOriginalDesc, setEditOriginalDesc] = useState<string>("");
+  const [isUpdatingProject, setIsUpdatingProject] = useState(false);
 
   // Check if we're on the flow editor page
   const isFlowEditor = location.pathname === '/flows/create';
@@ -119,7 +131,7 @@ export default function AppLayout() {
         // silent; non-blocking for layout
       }
     })();
-  }, [restoreCtx, currentProject?.id]);
+  }, [restoreCtx, loadFullContext, currentProject?.id, setProjectDetails]);
 
   if (!isAuthenticated) {
     // Preserve the current path when redirecting to sign-in
@@ -169,8 +181,9 @@ export default function AppLayout() {
                 />
               </button>
 
+            </div>
               {isDropdownOpen && (
-                <div className="absolute left-0 z-20 mt-2 w-full overflow-hidden rounded-2xl border border-white/20 dark:border-white/10 bg-theme-input backdrop-blur-md shadow-xl">
+                <div className="absolute left-5 top-18 z-20 mt-2 w-[80%] overflow-hidden rounded-2xl border border-white/20 dark:border-white/10 bg-theme-input backdrop-blur-md shadow-xl">
                   <div className="border-b border-white/20 dark:border-white/10 p-3">
                     <div
                       className="mb-2 text-xs font-semibold uppercase tracking-wider text-theme-secondary truncate"
@@ -199,6 +212,12 @@ export default function AppLayout() {
                           );
                           return;
                         }
+                        setIsEditingProject(false);
+                        setEditProjectId(null);
+                        setNewProjectName("");
+                        setNewProjectDesc("");
+                        setEditOriginalName("");
+                        setEditOriginalDesc("");
                         setIsCreateOpen(true);
                         setIsDropdownOpen(false);
                       }}
@@ -234,18 +253,32 @@ export default function AppLayout() {
                           }
                         })();
                       }}
+                    onDeleteRequested={(proj) => {
+                      setProjectToDelete({ id: proj.id, name: proj.name });
+                      setIsDeleteProjectOpen(true);
+                      setIsDropdownOpen(false);
+                    }}
+                    onEditRequested={(proj) => {
+                      setIsEditingProject(true);
+                      setEditProjectId(proj.id);
+                      setNewProjectName(proj.name);
+                      setNewProjectDesc(proj.description ?? "");
+                      setEditOriginalName(proj.name);
+                      setEditOriginalDesc(proj.description ?? "");
+                      setIsCreateOpen(true);
+                      setIsDropdownOpen(false);
+                    }}
                   />
                 </div>
               )}
-            </div>
-            <div className="flex items-center gap-2">
+          
               <button
                 className="rounded-2xl p-2.5 text-theme-secondary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary hover:scale-105"
                 aria-label="Settings"
               >
                 <Settings size={18} />
               </button>
-            </div>
+          
           </div>
 
           <nav className="flex-1 overflow-y-auto px-4 py-8 scrollbar-theme">
@@ -404,102 +437,152 @@ export default function AppLayout() {
 
       {isCreateOpen && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Create new project
-              </h3>
-              <p className="mt-1 text-sm text-gray-600">
-                Add a project to {currentPlatform?.name ?? "your platform"}.
-              </p>
-            </div>
-            <div className="space-y-4">
+          <div className="w-full max-w-md rounded-2xl bg-theme-form/95 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/20 dark:border-white/10 p-6">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-900">
-                  Project name
-                </label>
+                <h3 className="text-lg font-semibold text-theme-primary">{isEditingProject ? 'Edit Project' : 'Create Project'}</h3>
+                <p className="mt-1 text-sm text-theme-secondary">{isEditingProject ? `Update project in ${currentPlatform?.name ?? 'your platform'}.` : `Add a project to ${currentPlatform?.name ?? 'your platform'}.`}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setIsEditingProject(false);
+                  setEditProjectId(null);
+                }}
+                className="rounded-2xl p-2 text-theme-tertiary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary hover:scale-105 focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-theme-primary">Project name</label>
                 <input
                   value={newProjectName}
                   onChange={(e) => setNewProjectName(e.target.value)}
                   placeholder="Sales"
-                  className="block w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  className="block w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-sm text-theme-primary placeholder:text-theme-secondary outline-none transition-all duration-200 focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
                 />
               </div>
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-900">
-                  Description
-                </label>
+                <label className="mb-1.5 block text-sm font-medium text-theme-primary">Description</label>
                 <textarea
                   value={newProjectDesc}
                   onChange={(e) => setNewProjectDesc(e.target.value)}
                   placeholder="Project for sales team"
                   rows={3}
-                  className="block w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  className="block w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-sm text-theme-primary placeholder:text-theme-secondary outline-none transition-all duration-200 focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
                 />
               </div>
             </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
               <button
                 type="button"
-                className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"
-                onClick={() => setIsCreateOpen(false)}
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-theme-secondary transition-all duration-200 hover:bg-theme-input-focus"
+                onClick={() => {
+                  setIsCreateOpen(false);
+                  setIsEditingProject(false);
+                  setEditProjectId(null);
+                }}
               >
                 Cancel
               </button>
-              <button
-                type="button"
-                disabled={isCreating}
-                onClick={async () => {
-                  if (!currentPlatform?.id) {
-                    toastError(
-                      "Missing platform",
-                      "No platform context available"
-                    );
-                    return;
+              {isEditingProject ? (
+                <button
+                  type="button"
+                  disabled={
+                    isUpdatingProject || (
+                      newProjectName.trim() === editOriginalName.trim() &&
+                      (newProjectDesc.trim() || "") === (editOriginalDesc.trim() || "")
+                    ) || newProjectName.trim().length < 2
                   }
-                  const name = newProjectName.trim();
-                  if (name.length < 2) {
-                    toastError(
-                      "Invalid name",
-                      "Project name must be at least 2 characters"
-                    );
-                    return;
-                  }
-                  setIsCreating(true);
-                  try {
-                    const baseUrl = getBackendBaseUrl();
-                    const url = `${
-                      baseUrl ? baseUrl.replace(/\/$/, "") : ""
-                    }/api/platforms/${currentPlatform.id}/projects`;
-                    const resp = await http.post<{
-                      message: string;
-                      project: {
-                        id: string;
-                        name: string;
-                        description?: string;
-                      };
-                    }>(url, {
-                      name,
-                      description: newProjectDesc.trim() || undefined,
-                    });
-                    const created = resp.data.project;
-                    addProjectToPlatform(currentPlatform.id, created);
-                    setIsCreateOpen(false);
-                    setNewProjectName("");
-                    setNewProjectDesc("");
-                    toastSuccess("Project created", created.name);
-                  } catch (error: unknown) {
-                    const message =
-                      extractAxiosMessage(error) || "Failed to create project";
-                    toastError("Create project failed", message);
-                  } finally {
-                    setIsCreating(false);
-                  }
-                }}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {isCreating ? "Creating…" : "Create"}
-              </button>
+                  onClick={async () => {
+                    if (!currentPlatform?.id || !editProjectId) {
+                      toastError('Missing context', 'Platform or project missing');
+                      return;
+                    }
+                    const name = newProjectName.trim();
+                    const description = newProjectDesc.trim() || undefined;
+                    setIsUpdatingProject(true);
+                    try {
+                      const baseUrl = getBackendBaseUrl();
+                      const url = `${baseUrl ? baseUrl.replace(/\/$/, '') : ''}/api/platforms/${currentPlatform.id}/projects/${editProjectId}`;
+                      await http.put(url, { name, description });
+                      const platformId = currentPlatform.id;
+                      const platform = platforms.find((p) => p.id === platformId);
+                      const existing = platform?.projects ?? [];
+                      const updatedProject = { id: editProjectId, name, description };
+                      const nextProjects = existing.map((p) => p.id === editProjectId ? updatedProject : p);
+                      setPlatformProjects(platformId, nextProjects);
+                      if (currentProject?.id === editProjectId) {
+                        setCurrentProject(platformId, updatedProject);
+                      }
+                      toastSuccess('Project updated', name);
+                      setIsCreateOpen(false);
+                      setIsEditingProject(false);
+                      setEditProjectId(null);
+                    } catch (error: unknown) {
+                      const message = extractAxiosMessage(error) || 'Failed to update project';
+                      toastError('Update project failed', message);
+                    } finally {
+                      setIsUpdatingProject(false);
+                    }
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b3a1ff] px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#a08fff] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isUpdatingProject ? 'Updating…' : 'Update'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled={isCreating}
+                  onClick={async () => {
+                    if (!currentPlatform?.id) {
+                      toastError(
+                        "Missing platform",
+                        "No platform context available"
+                      );
+                      return;
+                    }
+                    const name = newProjectName.trim();
+                    if (name.length < 2) {
+                      toastError(
+                        "Invalid name",
+                        "Project name must be at least 2 characters"
+                      );
+                      return;
+                    }
+                    setIsCreating(true);
+                    try {
+                      const baseUrl = getBackendBaseUrl();
+                      const url = `${baseUrl ? baseUrl.replace(/\/$/, "") : ""}/api/platforms/${currentPlatform.id}/projects`;
+                      const resp = await http.post<{
+                        message: string;
+                        project: { id: string; name: string; description?: string };
+                      }>(url, {
+                        name,
+                        description: newProjectDesc.trim() || undefined,
+                      });
+                      const created = resp.data.project;
+                      addProjectToPlatform(currentPlatform.id, created);
+                      setIsCreateOpen(false);
+                      setNewProjectName("");
+                      setNewProjectDesc("");
+                      toastSuccess("Project created", created.name);
+                    } catch (error: unknown) {
+                      const message = extractAxiosMessage(error) || "Failed to create project";
+                      toastError("Create project failed", message);
+                    } finally {
+                      setIsCreating(false);
+                    }
+                  }}
+                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b3a1ff] px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#a08fff] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {isCreating ? "Creating…" : "Create"}
+                </button>
+              )}
             </div>
           </div>
         </div>
@@ -507,40 +590,56 @@ export default function AppLayout() {
 
       {isInviteOpen && (
         <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl">
-            <div className="mb-4">
-              <h3 className="text-lg font-semibold text-gray-900">Invite user</h3>
-              <p className="mt-1 text-sm text-gray-600">Send an invitation to your platform or a project.</p>
-            </div>
-            <div className="space-y-4">
+          <div className="w-full max-w-md rounded-2xl bg-theme-form/95 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/20 dark:border-white/10 p-6">
               <div>
-                <label className="mb-1.5 block text-sm font-medium text-gray-900">Email</label>
+                <h3 className="text-lg font-semibold text-theme-primary">Invite user</h3>
+                <p className="mt-1 text-sm text-theme-secondary">Send an invitation to your platform or a project.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsInviteOpen(false);
+                  setInviteEmail("");
+                  setInviteScope('platform');
+                  setInviteRole('MEMBER');
+                  setSelectedProjectIds([]);
+                }}
+                className="rounded-2xl p-2 text-theme-tertiary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary hover:scale-105 focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-theme-primary">Email</label>
                 <input
                   type="email"
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
                   placeholder="invitee@example.com"
-                  className="block w-full rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 outline-none transition-all duration-200 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                  className="block w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-sm text-theme-primary placeholder:text-theme-secondary outline-none transition-all duration-200 focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
                 />
               </div>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-900">Invite to</label>
+                  <label className="mb-1.5 block text-sm font-medium text-theme-primary">Invite to</label>
                   <div className="relative" data-dropdown>
                     <button
                       type="button"
                       onClick={() => setIsScopeDropdownOpen(!isScopeDropdownOpen)}
-                      className="flex w-full items-center justify-between rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-left text-sm text-gray-900 transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                      className="flex w-full items-center justify-between rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-left text-sm text-theme-primary transition-all duration-200 hover:bg-theme-input-focus focus:outline-none focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
                     >
                       <span>{inviteScope === 'platform' ? 'Entire Platform' : 'Specific project(s)'}</span>
                       <ChevronDown 
                         size={16} 
-                        className={`text-gray-400 transition-transform duration-200 ${isScopeDropdownOpen ? 'rotate-180' : ''}`} 
+                        className={`text-theme-tertiary transition-transform duration-200 ${isScopeDropdownOpen ? 'rotate-180' : ''}`} 
                       />
                     </button>
                     
                     {isScopeDropdownOpen && (
-                      <div className="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                      <div className="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 bg-theme-form/95 backdrop-blur-md shadow-lg">
                         <div className="py-1">
                           <button
                             type="button"
@@ -550,8 +649,8 @@ export default function AppLayout() {
                             }}
                             className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
                               inviteScope === 'platform' 
-                                ? 'bg-blue-50 text-blue-700' 
-                                : 'text-gray-700 hover:bg-gray-50'
+                                ? 'bg-[#b3a1ff]/10 text-theme-primary' 
+                                : 'text-theme-primary hover:bg-theme-input-focus'
                             }`}
                           >
                             Entire Platform
@@ -564,8 +663,8 @@ export default function AppLayout() {
                             }}
                             className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
                               inviteScope === 'project' 
-                                ? 'bg-blue-50 text-blue-700' 
-                                : 'text-gray-700 hover:bg-gray-50'
+                                ? 'bg-[#b3a1ff]/10 text-theme-primary' 
+                                : 'text-theme-primary hover:bg-theme-input-focus'
                             }`}
                           >
                             Specific project(s)
@@ -576,22 +675,22 @@ export default function AppLayout() {
                   </div>
                 </div>
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-900">Role</label>
+                  <label className="mb-1.5 block text-sm font-medium text-theme-primary">Role</label>
                   <div className="relative" data-dropdown>
                     <button
                       type="button"
                       onClick={() => setIsRoleDropdownOpen(!isRoleDropdownOpen)}
-                      className="flex w-full items-center justify-between rounded-xl border border-gray-300 bg-white px-3 py-2.5 text-left text-sm text-gray-900 transition-all duration-200 hover:bg-gray-50 focus:outline-none focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+                      className="flex w-full items-center justify-between rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-left text-sm text-theme-primary transition-all duration-200 hover:bg-theme-input-focus focus:outline-none focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
                     >
                       <span>{inviteRole}</span>
                       <ChevronDown 
                         size={16} 
-                        className={`text-gray-400 transition-transform duration-200 ${isRoleDropdownOpen ? 'rotate-180' : ''}`} 
+                        className={`text-theme-tertiary transition-transform duration-200 ${isRoleDropdownOpen ? 'rotate-180' : ''}`} 
                       />
                     </button>
                     
                     {isRoleDropdownOpen && (
-                      <div className="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-xl border border-gray-200 bg-white shadow-lg">
+                      <div className="absolute left-0 right-0 z-10 mt-1 overflow-hidden rounded-xl border border-white/20 dark:border-white/10 bg-theme-form/95 backdrop-blur-md shadow-lg">
                         <div className="py-1">
                           <button
                             type="button"
@@ -601,8 +700,8 @@ export default function AppLayout() {
                             }}
                             className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
                               inviteRole === 'ADMIN' 
-                                ? 'bg-blue-50 text-blue-700' 
-                                : 'text-gray-700 hover:bg-gray-50'
+                                ? 'bg-[#b3a1ff]/10 text-theme-primary' 
+                                : 'text-theme-primary hover:bg-theme-input-focus'
                             }`}
                           >
                             ADMIN
@@ -615,8 +714,8 @@ export default function AppLayout() {
                             }}
                             className={`block w-full px-3 py-2 text-left text-sm transition-colors ${
                               inviteRole === 'MEMBER' 
-                                ? 'bg-blue-50 text-blue-700' 
-                                : 'text-gray-700 hover:bg-gray-50'
+                                ? 'bg-[#b3a1ff]/10 text-theme-primary' 
+                                : 'text-theme-primary hover:bg-theme-input-focus'
                             }`}
                           >
                             MEMBER
@@ -629,17 +728,17 @@ export default function AppLayout() {
               </div>
               {inviteScope === 'project' && (
                 <div>
-                  <label className="mb-1.5 block text-sm font-medium text-gray-900">Select project(s)</label>
-                  <div className="max-h-40 overflow-y-auto rounded-xl border border-gray-200 p-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-300">
+                  <label className="mb-1.5 block text-sm font-medium text-theme-primary">Select project(s)</label>
+                  <div className="max-h-40 overflow-y-auto rounded-xl border border-white/20 dark:border-white/10 bg-theme-form/70 backdrop-blur-md p-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
                     {(platforms.find((p) => p.id === (currentPlatform?.id ?? ''))?.projects ?? []).length === 0 ? (
-                      <div className="px-2 py-1 text-sm text-gray-500">No projects available</div>
+                      <div className="px-2 py-1 text-sm text-theme-secondary">No projects available</div>
                     ) : (
                       (platforms.find((p) => p.id === (currentPlatform?.id ?? ''))?.projects ?? []).map((proj) => (
-                        <label key={proj.id} className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-gray-700 transition-colors hover:bg-gray-50 cursor-pointer">
+                        <label key={proj.id} className="flex items-center gap-3 rounded-lg px-3 py-2 text-sm text-theme-primary transition-colors hover:bg-theme-input-focus cursor-pointer">
                           <div className="relative flex items-center">
                             <input
                               type="checkbox"
-                              className="peer h-4 w-4 appearance-none rounded border-2 border-gray-300 bg-white transition-all duration-200 checked:border-blue-600 checked:bg-blue-600 focus:outline-none focus:ring-4 focus:ring-blue-500/10"
+                              className="peer h-4 w-4 appearance-none rounded border-2 border-white/20 bg-theme-input transition-all duration-200 checked:border-[#b3a1ff] checked:bg-[#b3a1ff] focus:outline-none focus:ring-4 focus:ring-[#b3a1ff]/10"
                               checked={selectedProjectIds.includes(proj.id)}
                               onChange={(e) => {
                                 setSelectedProjectIds((prev) =>
@@ -667,10 +766,10 @@ export default function AppLayout() {
                 </div>
               )}
             </div>
-            <div className="mt-6 flex items-center justify-end gap-3">
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
               <button
                 type="button"
-                className="rounded-xl px-4 py-2 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-theme-secondary transition-all duration-200 hover:bg-theme-input-focus"
                 onClick={() => {
                   setIsInviteOpen(false);
                   setInviteEmail("");
@@ -724,9 +823,87 @@ export default function AppLayout() {
                     setIsInviting(false);
                   }
                 }}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b3a1ff] px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#a08fff] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {isInviting ? 'Inviting…' : 'Invite'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {isDeleteProjectOpen && (
+        <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-md rounded-2xl bg-theme-form backdrop-blur-md border border-white/20 dark:border-white/10 shadow-2xl">
+            <div className="flex items-center justify-between border-b border-white/20 dark:border-white/10 p-6">
+              <div>
+                <h3 className="text-lg font-semibold text-theme-primary">Delete project</h3>
+                <p className="text-sm text-theme-secondary">This action cannot be undone.</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setIsDeleteProjectOpen(false);
+                  setProjectToDelete(null);
+                }}
+                className="rounded-2xl p-2 text-theme-tertiary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary hover:scale-105 focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+                aria-label="Close"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6">
+              <p className="text-sm text-theme-primary">
+                Are you sure you want to delete {""}
+                <span className="font-semibold">"{projectToDelete?.name}"</span>?
+              </p>
+            </div>
+            <div className="px-6 pb-6 flex items-center justify-end gap-3">
+              <button
+                type="button"
+                className="rounded-xl px-4 py-2 text-sm font-semibold text-theme-secondary transition-all duration-200 hover:bg-theme-input-focus"
+                onClick={() => {
+                  setIsDeleteProjectOpen(false);
+                  setProjectToDelete(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeletingProject || !projectToDelete}
+                onClick={async () => {
+                  if (!projectToDelete) return;
+                  if (!currentPlatform?.id) {
+                    toastError("Missing platform", "No platform context available");
+                    return;
+                  }
+                  setIsDeletingProject(true);
+                  try {
+                    const baseUrl = getBackendBaseUrl();
+                    const platformId = currentPlatform.id;
+                    const url = `${baseUrl ? baseUrl.replace(/\/$/, "") : ""}/api/platforms/${platformId}/projects/${projectToDelete.id}`;
+                    await http.delete(url);
+                    toastSuccess("Project deleted", projectToDelete.name);
+                    const platform = platforms.find((p) => p.id === platformId);
+                    const existing = platform?.projects ?? [];
+                    const nextProjects = existing.filter((p) => p.id !== projectToDelete.id);
+                    setPlatformProjects(platformId, nextProjects);
+                    if (currentProject?.id === projectToDelete.id && nextProjects.length > 0) {
+                      setCurrentProject(platformId, nextProjects[0]);
+                    }
+                    setIsDeleteProjectOpen(false);
+                    setProjectToDelete(null);
+                  } catch (error: unknown) {
+                    const message = extractAxiosMessage(error) || "Failed to delete project";
+                    toastError("Delete project failed", message);
+                  } finally {
+                    setIsDeletingProject(false);
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#ef4a45] px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#e13c38] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isDeletingProject ? "Deleting…" : "Delete"}
               </button>
             </div>
           </div>
@@ -750,6 +927,8 @@ type ProjectListProps = {
     name: string;
     description?: string;
   }) => void;
+  onDeleteRequested: (project: { id: string; name: string; description?: string }) => void;
+  onEditRequested: (project: { id: string; name: string; description?: string }) => void;
 };
 
 function ProjectList({
@@ -758,6 +937,8 @@ function ProjectList({
   currentProjectId,
   searchQuery,
   onSelect,
+  onDeleteRequested,
+  onEditRequested,
 }: ProjectListProps) {
   const platform = platforms.find((p) => p.id === platformId);
   const projects = platform?.projects ?? [];
@@ -776,10 +957,9 @@ function ProjectList({
       ) : (
         filtered.map((proj) => (
           <li key={proj.id}>
-            <button
-              type="button"
+            <div
               onClick={() => onSelect(proj)}
-              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-all duration-200 ${
+              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-all duration-200 cursor-pointer ${
                 proj.id === currentProjectId
                   ? "bg-theme-primary text-theme-inverse shadow-sm"
                   : "text-theme-primary hover:bg-theme-input"
@@ -790,10 +970,36 @@ function ProjectList({
               <span className={`truncate ${proj.id === currentProjectId ? 'text-theme-inverse' : 'text-theme-primary'}`} title={proj.name}>
                 {proj.name}
               </span>
-              {proj.id === currentProjectId && (
-                <span className={`text-xs font-medium ${proj.id === currentProjectId ? 'text-theme-inverse' : 'text-theme-primary'}`}>Current</span>
-              )}
-            </button>
+              <div className="flex items-center gap-2">
+                {proj.id === currentProjectId && (
+                  <span className={`text-xs font-medium ${proj.id === currentProjectId ? 'text-theme-inverse' : 'text-theme-primary'}`}>Current</span>
+                )}
+                <button
+                  type="button"
+                  aria-label={`Edit ${proj.name}`}
+                  onClick={(e) => { e.stopPropagation(); onEditRequested(proj); }}
+                  className={`rounded-lg p-1 transition-all duration-200 ${
+                    proj.id === currentProjectId
+                      ? 'text-theme-inverse/80 hover:text-theme-inverse hover:bg-white/20'
+                      : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-input-focus'
+                  }`}
+                >
+                  <Pencil size={16} />
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${proj.name}`}
+                  onClick={(e) => { e.stopPropagation(); onDeleteRequested(proj); }}
+                  className={`rounded-lg p-1 transition-all duration-200 ${
+                    proj.id === currentProjectId
+                      ? 'text-theme-inverse/80 hover:text-theme-inverse hover:bg-white/20'
+                      : 'text-theme-secondary hover:text-theme-primary hover:bg-theme-input-focus'
+                  }`}
+                >
+                  <Trash2 size={16} />
+                </button>
+              </div>
+            </div>
           </li>
         ))
       )}

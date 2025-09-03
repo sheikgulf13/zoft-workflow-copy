@@ -1,10 +1,11 @@
 'use client';
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import type { SubmitHandler } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Link } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+//
 import { Mail, ArrowLeft } from "lucide-react";
 import { http } from "../../lib/http";
 import { toastError, toastSuccess } from "../../components/ui/Toast";
@@ -28,6 +29,33 @@ export default function SendVerificationPage() {
   });
 
   const [isSent, setIsSent] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  // no context or session setup here; sign-in handles it
+
+  // When arriving via email link: /verify-email?token=...
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token') || params.get('t') || '';
+    if (!token) return;
+
+    (async () => {
+      try {
+        // Verify token with backend; do not persist session here
+        const baseUrl = getBackendBaseUrl();
+        const verifyUrl = `${baseUrl ? baseUrl.replace(/\/$/, '') : ''}/api/email/verify`;
+        const resp = await http.post<{ error?: string; message?: string }>(verifyUrl, { token });
+  
+   
+        toastSuccess('Email verified', 'Your email has been verified. Please sign in.');
+        navigate('/auth/sign-in');
+      } catch (error: unknown) {
+       
+        const message = extractAxiosMessage(error) || 'Failed to verify email';
+        toastError('Verification failed', message);
+      }
+    })();
+  }, [location.search, navigate]);
 
   const onSubmit: SubmitHandler<FormValues> = async (values) => {
     try {
@@ -42,6 +70,13 @@ export default function SendVerificationPage() {
       setIsSent(true);
       toastSuccess("Verification email sent", "Please check your inbox and follow the verification link");
     } catch (error: unknown) {
+      const errObj = error as { response?: { data?: { error?: string; message?: string } } };
+      console.log('errior',error)
+      if (errObj?.response?.data?.error === 'Email already verified') {
+        toastSuccess('Email already verified', 'Please sign in.');
+        navigate('/auth/sign-in');
+        return;
+      }
       const message = extractAxiosMessage(error) || "Failed to send verification email";
       toastError("Verification failed", message);
     }

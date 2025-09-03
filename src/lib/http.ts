@@ -3,8 +3,14 @@ import Cookies from 'js-cookie'
 
 const ACCESS_COOKIE = 'zw_access'
 
+const env = import.meta.env as Record<string, string | undefined>
+const rawBackendUrl = env.VITE_BACKEND_API_URL || env.BACKEND_API_URL || ''
+const resolvedBaseUrl = rawBackendUrl
+  ? `${rawBackendUrl.replace(/\/$/, '')}/api`
+  : '/api'
+
 export const http = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || '/api',
+  baseURL: resolvedBaseUrl,
   timeout: 20_000,
   //withCredentials: true,
 

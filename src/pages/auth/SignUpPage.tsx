@@ -30,7 +30,7 @@ export default function SignUpPage() {
     resolver: zodResolver(schema),
     defaultValues: { firstName: '', lastName: '', email: '', password: '', confirmPassword: '', remember: false },
   })
-  const { isAuthenticated, signUp, restoreSession } = useAuthStore()
+  const { isAuthenticated, restoreSession } = useAuthStore()
   const navigate = useNavigate()
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
@@ -59,14 +59,9 @@ export default function SignUpPage() {
       const data = response.data
       const fullName = `${data.user.firstName} ${data.user.lastName}`.trim()
 
-      signUp({
-        user: { id: data.user.email, name: fullName, email: data.user.email },
-        accessToken: data.token,
-        remember: values.remember,
-      })
-
-      toastSuccess('Account created', 'Your account has been set up successfully')
-      navigate('/')
+      // Do not auto sign-in; redirect user to send verification page
+      toastSuccess('Account created', `Welcome, ${fullName}. Please verify your email to continue.`)
+      navigate('/auth/send-verification')
     } catch (error: unknown) {
       const message = extractAxiosMessage(error) || 'Failed to sign up'
       toastError('Sign up failed', message)

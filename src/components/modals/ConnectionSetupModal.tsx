@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { X } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toastError, toastSuccess } from "../ui/Toast";
@@ -38,6 +38,9 @@ type ConnectionSetupModalProps = {
   onClose: () => void;
   piece: ActivePiece;
   onConnectionCreated: (connection: Connection) => void;
+  mode?: 'create' | 'edit';
+  existingConnection?: Connection | null;
+  onConnectionUpdated?: (connection: Connection) => void;
 };
 
 
@@ -52,8 +55,12 @@ export default function ConnectionSetupModal({
   onClose,
   piece,
   onConnectionCreated,
+  mode = 'create',
+  existingConnection,
+  onConnectionUpdated,
 }: ConnectionSetupModalProps) {
   const [isCreating, setIsCreating] = useState(false);
+  const [isUpdating, setIsUpdating] = useState(false);
   const currentProject = useContextStore((state) => state.currentProject);
 
   const form = useForm<ConnectionFormData>({
@@ -62,12 +69,58 @@ export default function ConnectionSetupModal({
     },
   });
 
+  useEffect(() => {
+    if (!isOpen) return;
+    if (mode === 'edit' && existingConnection) {
+      form.reset({ displayName: existingConnection.displayName });
+    } else {
+      form.reset({ displayName: `${piece.displayName} Connection` });
+    }
+  }, [isOpen, mode, existingConnection, piece.displayName]);
+
   const handleSubmit = async (data: ConnectionFormData) => {
     if (!currentProject?.id) {
       toastError("No project selected", "Please select a project to create a connection");
       return;
     }
 
+    if (mode === 'edit' && existingConnection) {
+      // Update connection: only displayName and metadata per spec
+      const displayName = data.displayName.trim();
+      if (displayName.length === 0) {
+        toastError('Invalid name', 'Display name is required');
+        return;
+      }
+      if (displayName === existingConnection.displayName) {
+        // No change
+        toastError('No changes detected', 'Update the name to save changes');
+        return;
+      }
+      setIsUpdating(true);
+      try {
+        const baseUrl = import.meta.env.VITE_BACKEND_API_URL || import.meta.env.BACKEND_API_URL || "";
+        const url = `${baseUrl ? baseUrl.replace(/\/$/, "") : ""}/api/projects/${currentProject.id}/app-connections/${existingConnection.id}`;
+        const body = { displayName, metadata: existingConnection.metadata } as const;
+        await http.post(url, body);
+        const updated: Connection = { ...existingConnection, displayName };
+        onConnectionUpdated && onConnectionUpdated(updated);
+        toastSuccess('Connection updated', `${displayName} has been updated`);
+        onClose();
+        form.reset();
+      } catch (error: unknown) {
+        let errorMessage = 'Failed to update connection. Please try again.';
+        if (error && typeof error === 'object' && 'response' in error) {
+          const axiosError = error as { response?: { data?: { message?: string } } };
+          errorMessage = axiosError.response?.data?.message || errorMessage;
+        }
+        toastError('Update failed', errorMessage);
+      } finally {
+        setIsUpdating(false);
+      }
+      return;
+    }
+
+    // Create connection flow
     setIsCreating(true);
     try {
       // Extract connection name and auth values
@@ -172,7 +225,17 @@ export default function ConnectionSetupModal({
 
   if (!isOpen) return null;
 
-  const formFields = getFormFields();
+  const formFields = mode === 'edit'
+    ? [
+        {
+          name: 'displayName',
+          label: 'Connection Name',
+          type: 'text',
+          required: true,
+          placeholder: 'Enter connection name',
+        },
+      ]
+    : getFormFields();
 
   return (
     <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/40 p-4">
@@ -190,10 +253,10 @@ export default function ConnectionSetupModal({
             />
             <div>
               <h2 className="text-lg font-semibold text-theme-primary">
-                Connect to {piece.displayName}
+                {mode === 'edit' ? `Edit ${piece.displayName} Connection` : `Connect to ${piece.displayName}`}
               </h2>
               <p className="text-sm text-theme-secondary">
-                Configure your connection settings
+                {mode === 'edit' ? 'Update your connection details' : 'Configure your connection settings'}
               </p>
             </div>
           </div>
@@ -210,7 +273,7 @@ export default function ConnectionSetupModal({
           className="px-6 py-3 h-[83%] flex flex-col"
         >
           <div className="h-full overflow-y-auto space-y-4 pr-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
-            {piece.auth?.description && (
+            {mode !== 'edit' && piece.auth?.description && (
               <div className="mb-4 p-4 bg-[#b3a1ff]/10 rounded-xl border border-[#b3a1ff]/30">
                 <h4 className="text-sm font-medium text-[#b3a1ff] mb-2">
                   Setup Instructions
@@ -258,10 +321,13 @@ export default function ConnectionSetupModal({
             </button>
             <button
               type="submit"
-              disabled={isCreating || !form.formState.isValid}
+              disabled={
+                (mode === 'edit' ? isUpdating : isCreating) || !form.formState.isValid ||
+                (mode === 'edit' && existingConnection && form.getValues('displayName').trim() === existingConnection.displayName.trim())
+              }
               className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#b3a1ff] px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:bg-[#a08fff] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isCreating ? "Creating..." : "Create Connection"}
+              {mode === 'edit' ? (isUpdating ? 'Updating...' : 'Update Connection') : (isCreating ? 'Creating...' : 'Create Connection')}
             </button>
           </div>
         </form>

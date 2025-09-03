@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, Pencil } from "lucide-react";
 import ConnectionsModal from "../../components/modals/ConnectionsModal";
 import ConnectionSetupModal from "../../components/modals/ConnectionSetupModal";
 import { useContextStore } from "../../stores/contextStore";
@@ -37,6 +37,7 @@ export default function ConnectionsPage() {
   const [isSetupModalOpen, setIsSetupModalOpen] = useState(false);
   const [selectedPiece, setSelectedPiece] = useState<ActivePiece | null>(null);
   const [connections, setConnections] = useState<Connection[]>([]);
+  const [editConnection, setEditConnection] = useState<Connection | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteConnectionId, setDeleteConnectionId] = useState<string | null>(null);
@@ -82,6 +83,27 @@ export default function ConnectionsPage() {
     setSelectedPiece(piece);
     setIsModalOpen(false);
     setIsSetupModalOpen(true);
+  };
+  const handleEditClick = (connection: Connection) => {
+    // Build a minimal piece object from the connection metadata
+    const piece: ActivePiece = {
+      id: connection.pieceName,
+      name: connection.pieceName,
+      displayName: connection.metadata?.pieceDisplayName || connection.pieceName,
+      logoUrl: connection.metadata?.pieceLogoUrl || "https://via.placeholder.com/32x32?text=?",
+      description: "",
+      categories: [],
+      actions: 0,
+      triggers: 0,
+    };
+    setSelectedPiece(piece);
+    setEditConnection(connection);
+    setIsModalOpen(false);
+    setIsSetupModalOpen(true);
+  };
+
+  const handleConnectionUpdated = (updated: Connection) => {
+    setConnections(prev => prev.map(c => c.id === updated.id ? updated : c));
   };
 
   const handleConnectionCreated = (newConnection: Connection) => {
@@ -194,6 +216,13 @@ export default function ConnectionsPage() {
                     {connection.status}
                   </span>
                   <button
+                    onClick={() => handleEditClick(connection)}
+                    className="p-2 text-theme-tertiary hover:text-theme-primary hover:bg-theme-input-focus rounded-2xl transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+                    title="Edit connection"
+                  >
+                    <Pencil size={16} />
+                  </button>
+                  <button
                     onClick={() => handleDeleteClick(connection.id)}
                     className="p-2 text-theme-tertiary hover:text-[#ef4a45] hover:bg-[#ef4a45]/10 rounded-2xl transition-all duration-200 hover:scale-105 focus:outline-none focus:ring-2 focus:ring-[#ef4a45]/20"
                     title="Delete connection"
@@ -219,9 +248,13 @@ export default function ConnectionsPage() {
           onClose={() => {
             setIsSetupModalOpen(false);
             setSelectedPiece(null);
+            setEditConnection(null);
           }}
           piece={selectedPiece}
           onConnectionCreated={handleConnectionCreated}
+          mode={editConnection ? 'edit' : 'create'}
+          existingConnection={editConnection ?? undefined}
+          onConnectionUpdated={handleConnectionUpdated}
         />
       )}
 

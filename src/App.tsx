@@ -5,6 +5,9 @@ import SendVerificationPage from './pages/auth/SendVerificationPage'
 
 const SignInPage = lazy(() => import('./pages/auth/SignInPage'))
 const SignUpPage = lazy(() => import('./pages/auth/SignUpPage'))
+const ResetPasswordRequestPage = lazy(() => import('./pages/auth/ResetPasswordRequestPage.tsx'))
+const ResetPasswordPage = lazy(() => import('./pages/auth/ResetPasswordPage.tsx'))
+const AcceptInvitationPage = lazy(() => import('./pages/auth/AcceptInvitationPage'))
 const AppLayout = lazy(() => import('./layouts/AppLayout'))
 const HomePage = lazy(() => import('./pages/app/HomePage'))
 const FlowsPage = lazy(() => import('./pages/app/FlowsPage'))
@@ -20,6 +23,10 @@ function App() {
           <Route path="/auth/sign-in" element={<SignInPage />} />
           <Route path="/auth/sign-up" element={<SignUpPage />} />
           <Route path="/auth/send-verification" element={<SendVerificationPage />} />
+          <Route path="/accept-invitation" element={<AcceptInvitationPage />} />
+          <Route path="/reset-password-request" element={<ResetPasswordRequestPage />} />
+          <Route path="/reset-password" element={<ResetPasswordPage />} />
+          <Route path="/verify-email" element={<SendVerificationPage />} />
           <Route path="/" element={<AppLayout />}> 
             <Route index element={<Navigate to="home" replace />} />
             <Route path="home" element={<HomePage />} />

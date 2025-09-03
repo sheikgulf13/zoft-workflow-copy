@@ -311,12 +311,12 @@ export default function SignInPage() {
                     />
                     <span className="group-hover:text-theme-primary transition-colors">Remember me</span>
                   </label>
-                  <button
-                    type="button"
+                  <Link
+                    to="/reset-password-request"
                     className="text-sm font-semibold text-theme-primary hover:text-theme-primary/80 transition-colors relative after:absolute after:bottom-0 after:left-0 after:h-0.5 after:w-0 after:bg-gradient-primary after:transition-all after:duration-200 hover:after:w-full"
                   >
                     Forgot password?
-                  </button>
+                  </Link>
                 </div>
 
                 <button
