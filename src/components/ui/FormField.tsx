@@ -1,10 +1,10 @@
-import type { ReactNode } from 'react'
+import type { ReactNode } from "react";
 
 type Props = {
-  label: string
-  error?: string
-  children: ReactNode
-}
+  label: string;
+  error?: string;
+  children: ReactNode;
+};
 
 export function FormField({ label, error, children }: Props) {
   return (
@@ -13,7 +13,5 @@ export function FormField({ label, error, children }: Props) {
       {children}
       {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
     </div>
-  )
+  );
 }
-
-

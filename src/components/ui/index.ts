@@ -1,4 +1,4 @@
-export { ThemeProvider } from './ThemeProvider';
+export { default as ThemeProvider } from '../../app/providers/ThemeProvider';
 export { ThemeToggle } from './ThemeToggle';
 export { Tooltip } from './Tooltip';
 export { toastSuccess, toastError, toastNeutral, toastWarning, showToast } from './Toast';

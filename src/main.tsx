@@ -1,13 +1,13 @@
-import { StrictMode } from 'react'
-import { createRoot } from 'react-dom/client'
-import './index.css'
-import { ErrorBoundary } from './components/ErrorBoundary'
-import { ThemeProvider } from './components/ui/ThemeProvider'
-import App from './App.tsx'
+import { StrictMode } from "react";
+import { createRoot } from "react-dom/client";
+import "./index.css";
+import { ErrorBoundary } from "./components/ErrorBoundary";
+import ThemeProvider from "./app/providers/ThemeProvider";
+import App from "./App.tsx";
 
-const rootElement = document.getElementById('root')
+const rootElement = document.getElementById("root");
 if (!rootElement) {
-  throw new Error('Root element not found')
+  throw new Error("Root element not found");
 }
 
 createRoot(rootElement).render(
@@ -17,5 +17,5 @@ createRoot(rootElement).render(
         <App />
       </ThemeProvider>
     </ErrorBoundary>
-  </StrictMode>,
-)
+  </StrictMode>
+);
