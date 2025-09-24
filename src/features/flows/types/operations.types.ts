@@ -22,13 +22,14 @@ export type FlowOperationType =
 export type WebhookTriggerSettings = {
   method: "POST" | "GET" | "PUT" | "DELETE";
   responseMode: "SYNC" | "ASYNC";
+  authType?: "NONE" | "BEARER";
 };
 
 export type UpdateTriggerPayload = {
   type: "WEBHOOK" | "SCHEDULE" | "POLLING" | "PIECE";
   name: string;
   displayName: string;
-  valid: boolean;
+  valid?: boolean;
   settings: WebhookTriggerSettings | Record<string, unknown>;
 };
 
@@ -38,14 +39,16 @@ export type FlowOperationEnvelope<TRequest> = {
 };
 
 export type ValidateWorkflowBody = {
-  trigger: {
-    type: "WEBHOOK" | "SCHEDULE" | "POLLING";
-    name: string;
-    displayName: string;
-    valid: boolean;
-    settings: Record<string, unknown>;
+  flowData: {
+    trigger: {
+      type: "WEBHOOK" | "SCHEDULE" | "POLLING";
+      name: string;
+      displayName: string;
+      valid: boolean;
+      settings: Record<string, unknown>;
+    };
+    nextAction: null;
   };
-  nextAction: null;
 };
 
 export type ValidateWorkflowResponse = {
@@ -99,7 +102,7 @@ export type AddActionRequest = {
   branchIndex?: number;
   action: {
     type: "PIECE" | "CODE" | "ROUTER" | "LOOP_ON_ITEMS";
-    name: string;
+    name?: string;
     displayName: string;
     valid?: boolean;
     settings:

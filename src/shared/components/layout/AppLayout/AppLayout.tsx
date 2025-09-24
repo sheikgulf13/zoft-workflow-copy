@@ -138,7 +138,7 @@ function AppLayout() {
               const baseUrl = getBackendBaseUrl();
               const detailsUrl = `${
                 baseUrl ? baseUrl.replace(/\/$/, "") : ""
-              }/api/projects/${currentProject.id}`;
+              }/api/platforms/${currentPlatform?.id}/projects/${currentProject.id}`;
               const resp = await http.get<{
                 project: {
                   id: string;
@@ -296,7 +296,7 @@ function AppLayout() {
                         const baseUrl = getBackendBaseUrl();
                         const detailsUrl = `${
                           baseUrl ? baseUrl.replace(/\/$/, "") : ""
-                        }/api/projects/${proj.id}`;
+                        }/api/platforms/${currentPlatform?.id}/projects/${proj.id}`;
                         const resp = await http.get<{
                           project: {
                             id: string;

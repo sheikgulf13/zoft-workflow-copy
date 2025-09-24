@@ -1,6 +1,7 @@
 import { ThemeToggle } from "../../../components/ui/ThemeToggle";
 import { SmudgyBackground } from "../../../components/ui";
 import SignUpForm from "../components/SignUpForm";
+import { Link } from "react-router-dom";
 
 export default function SignUpPage() {
   return (
@@ -48,6 +49,12 @@ export default function SignUpPage() {
             </div>
             <div className="bg-theme-form backdrop-blur-md rounded-3xl p-6 shadow-lg">
               <SignUpForm />
+            </div>
+            <div className="mt-4 text-center text-sm text-theme-secondary">
+              Already have an account? {""}
+              <Link to="/auth/sign-in" className="text-theme-primary hover:underline font-medium">
+                Sign in
+              </Link>
             </div>
           </div>
         </div>

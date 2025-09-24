@@ -30,13 +30,12 @@ import {
   ToggleRight,
 } from "lucide-react";
 import { ThemeToggle } from "../../../components/ui";
-import { toastSuccess, toastError } from "../../../components/ui/Toast";
+import { toastSuccess } from "../../../components/ui/Toast";
 import {
   validateWorkflow,
   listFlowVersions,
   lockAndPublish,
   changeStatus,
-  getWebhookTrigger,
   updateWebhookTrigger,
 } from "../services/flowService";
 // import type { Connection } from '../../../types/connection'
@@ -103,7 +102,7 @@ export default function FlowEditorPage() {
   const [connectionPiece, setConnectionPiece] =
     useState<ConnectionPiece | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
-  const [isFlowEnabled, setIsFlowEnabled] = useState(true);
+  const [isFlowEnabled, setIsFlowEnabled] = useState(false);
   const [isToggleLoading, setIsToggleLoading] = useState(false);
   const [confirmDeleteNodeId, setConfirmDeleteNodeId] = useState<string | null>(
     null
@@ -113,6 +112,21 @@ export default function FlowEditorPage() {
   const memoEdgeTypes = useMemo(() => edgeTypes, []);
 
   useEffect(() => {
+    // Initialize toggle from stored flow status (existing or newly created)
+    try {
+      const stored = sessionStorage.getItem("zw_current_flow");
+      if (stored) {
+        const parsed = JSON.parse(stored) as { status?: string };
+        if (typeof parsed?.status === "string")
+          setIsFlowEnabled(parsed.status === "ENABLED");
+        else setIsFlowEnabled(false);
+      } else {
+        const lastId = sessionStorage.getItem("zw_last_created_flow_id");
+        if (lastId) setIsFlowEnabled(false);
+      }
+    } catch {
+      /* noop */
+    }
     const handleBeforeUnload = (e: BeforeUnloadEvent) => {
       if (isDirty) {
         e.preventDefault();
@@ -154,32 +168,43 @@ export default function FlowEditorPage() {
           }
         }
         const validation = await validateWorkflow({
-          trigger: {
-            type: "WEBHOOK",
-            name: "webhook",
-            displayName: "Webhook Trigger",
-            valid: true,
-            settings: {},
-          },
-          nextAction: null,
-        });
-        if (!validation.valid) {
-          // Surface minimal feedback for now; can be replaced with UI banner/toast
-          console.warn("Workflow validation failed", validation.errors);
-          return;
-        }
-        // After validation, set trigger using UPDATE_TRIGGER
-        const stored = sessionStorage.getItem("zw_current_flow");
-        if (stored) {
-          const parsed = JSON.parse(stored) as { id?: string };
-          if (parsed?.id) {
-            await updateWebhookTrigger(parsed.id, {
+          flowData: {
+            trigger: {
               type: "WEBHOOK",
               name: "webhook_trigger",
               displayName: "Webhook Trigger",
               valid: true,
               settings: { method: "POST", responseMode: "SYNC" },
-            });
+            },
+            nextAction: null,
+          },
+        });
+        // Proceed regardless of validation result; log errors if any
+        if (!validation.valid) {
+          console.warn("Workflow validation failed", validation.errors);
+        }
+        // Set trigger using UPDATE_TRIGGER
+        // Resolve flowId from current flow or last created id
+        let flowIdForUpdate: string | undefined;
+        try {
+          const stored = sessionStorage.getItem("zw_current_flow");
+          if (stored) flowIdForUpdate = (JSON.parse(stored) as { id?: string })?.id;
+        } catch {
+          /* noop */
+        }
+        if (!flowIdForUpdate) {
+          const lastId = sessionStorage.getItem("zw_last_created_flow_id");
+          if (lastId) flowIdForUpdate = lastId;
+        }
+        if (flowIdForUpdate) {
+          const lastCreatedId = sessionStorage.getItem("zw_last_created_flow_id");
+          if (lastCreatedId && lastCreatedId === flowIdForUpdate) {
+            await updateWebhookTrigger(flowIdForUpdate);
+            try {
+              sessionStorage.removeItem("zw_last_created_flow_id");
+            } catch {
+              /* noop */
+            }
           }
         }
         // Build canvas from backend graph
@@ -196,49 +221,7 @@ export default function FlowEditorPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Fetch webhook-trigger for current flow on mount (one-time)
-  useEffect(() => {
-    let flowId: string | undefined;
-    try {
-      const stored = sessionStorage.getItem("zw_current_flow");
-      if (stored) {
-        const parsed = JSON.parse(stored) as { id?: string };
-        if (parsed?.id) flowId = parsed.id;
-      }
-    } catch {
-      /* noop */
-    }
-    if (!flowId) {
-      const lastId = sessionStorage.getItem("zw_last_created_flow_id");
-      if (lastId) flowId = lastId;
-    }
-    if (!flowId) return;
-    (async () => {
-      try {
-        await getWebhookTrigger(flowId as string);
-      } catch (error) {
-        const axiosErr = error as {
-          response?: { data?: { message?: string } };
-          message?: string;
-        };
-        const message =
-          axiosErr?.response?.data?.message || axiosErr?.message || "";
-        if (message === "Webhook trigger not found") {
-          // Open StepSettings for the trigger (first) node
-          try {
-            const trigger = nodes.find((n) => n.data?.type === "trigger");
-            if (trigger) {
-              setSelectedNodeId(trigger.id);
-              setIsStepSettingsOpen(true);
-            }
-          } catch {
-            /* noop */
-          }
-        }
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // Removed webhook-trigger GET on create page per request
 
   const handleBackToFlows = () => {
     if (isDirty) setShowUnsavedWarning(true);
@@ -537,11 +520,7 @@ export default function FlowEditorPage() {
                     : undefined;
                   const flowId = parsed?.id;
                   if (!flowId) {
-                    try {
-                      toastError("Status change failed", "Missing flow id");
-                    } catch {
-                      /* noop */
-                    }
+                    // toastError("Status change failed", "Missing flow id");
                     return;
                   }
                   const newStatus = isFlowEnabled ? "DISABLED" : "ENABLED";
@@ -555,16 +534,12 @@ export default function FlowEditorPage() {
                   } catch {
                     /* noop */
                   }
-                } catch (error) {
-                  try {
-                    const errorMessage =
-                      error instanceof Error
-                        ? error.message
-                        : "Could not change flow status";
-                    toastError("Status change failed", errorMessage);
-                  } catch {
-                    /* noop */
-                  }
+                } catch {
+                  // const errorMessage =
+                  //   error instanceof Error
+                  //     ? error.message
+                  //     : "Could not change flow status";
+                  // toastError("Status change failed", errorMessage);
                 } finally {
                   setIsToggleLoading(false);
                 }
@@ -596,6 +571,48 @@ export default function FlowEditorPage() {
               <Save size={15} className="inline mr-1" />
               Save
             </button>
+            {/* <button
+              onClick={async () => {
+                try {
+                  const stored = sessionStorage.getItem("zw_current_flow");
+                  const parsed = stored
+                    ? (JSON.parse(stored) as { id?: string })
+                    : undefined;
+                  const flowId = parsed?.id;
+                  if (!flowId) {
+                  // toastError("Test failed", "Missing flow id");
+                    return;
+                  }
+                  const baseUrl = (import.meta.env.VITE_BACKEND_API_URL || import.meta.env.BACKEND_API_URL || "").replace(/\/$/, "") || window.location.origin;
+                  const nowIso = new Date().toISOString();
+                  const body = {
+                    test: true,
+                    event: "test_trigger",
+                    message: "Testing webhook functionality",
+                    timestamp: nowIso,
+                    data: {
+                      userId: "test-user-123",
+                      action: "webhook_test",
+                      environment: baseUrl,
+                      flowId,
+                    },
+                  };
+                  const resp = await testFlowWebhook(flowId, body);
+                  toastSuccess("Flow test sent", "Webhook test executed");
+                  try {
+                    console.debug("[Test flow] response", resp);
+                  } catch {
+                    /* noop *
+                  }
+                } catch {
+                  // toastError("Test failed", "Could not execute flow test");
+                }
+              }}
+              className="px-3 py-2 bg-[#c7d2fe] text-[#111827] text-xs font-medium rounded-xl hover:bg-[#a5b4fc] transition-colors focus:outline-none focus:ring-2 focus:ring-[#c7d2fe]/20"
+            >
+              <Play size={15} className="inline mr-1" />
+              Test flow
+            </button>*/}
             <button
               onClick={async () => {
                 try {
@@ -605,11 +622,7 @@ export default function FlowEditorPage() {
                     : undefined;
                   const flowId = parsed?.id;
                   if (!flowId) {
-                    try {
-                      toastError("Publish failed", "Missing flow id");
-                    } catch {
-                      /* noop */
-                    }
+                    // toastError("Publish failed", "Missing flow id");
                     return;
                   }
                   await lockAndPublish(flowId, { status: "ENABLED" });
@@ -622,11 +635,7 @@ export default function FlowEditorPage() {
                     /* noop */
                   }
                 } catch {
-                  try {
-                    toastError("Publish failed", "Could not publish flow");
-                  } catch {
-                    /* noop */
-                  }
+                  // toastError("Publish failed", "Could not publish flow");
                 }
               }}
               className="px-3 py-2 bg-[#22d3ee] text-[#0b132b] text-xs font-medium rounded-xl hover:bg-[#06b6d4] transition-colors focus:outline-none focus:ring-2 focus:ring-[#22d3ee]/20"
@@ -1054,16 +1063,12 @@ export default function FlowEditorPage() {
                   try {
                     deleteNode(confirmDeleteNodeId);
                     setConfirmDeleteNodeId(null);
-                  } catch (error) {
-                    try {
-                      const message =
-                        error instanceof Error
-                          ? error.message
-                          : "Failed to delete node";
-                      toastError("Delete failed", message);
-                    } catch {
-                      /* noop */
-                    }
+                  } catch {
+                    // const message =
+                    //   error instanceof Error
+                    //     ? error.message
+                    //     : "Failed to delete node";
+                    // toastError("Delete failed", message);
                   } finally {
                     setIsDeletingNode(false);
                   }

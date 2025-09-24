@@ -46,6 +46,10 @@ export default function CreateFlowModal({
       setIsLoading("create");
       const flow = await createFlow({ displayName });
       sessionStorage.setItem("zw_last_created_flow_id", flow.id);
+      sessionStorage.setItem(
+        "zw_current_flow",
+        JSON.stringify({ id: flow.id, status: flow.status || "DISABLED" })
+      );
       toastSuccess(
         "Flow created",
         `"${flow.name || displayName}" is ready to edit.`

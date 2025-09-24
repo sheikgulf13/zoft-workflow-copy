@@ -34,6 +34,9 @@ export default function ConnectionSetupModal({
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
   const currentProject = useContextStore((state) => state.currentProject);
+  const isGithub =
+    piece?.name?.toLowerCase().includes("github") ||
+    piece?.displayName?.toLowerCase().includes("github");
 
   const form = useForm<ConnectionFormData>({
     defaultValues: { displayName: `${piece.displayName} Connection` },
@@ -75,7 +78,7 @@ export default function ConnectionSetupModal({
           "";
         const url = `${
           baseUrl ? baseUrl.replace(/\/$/, "") : ""
-        }/api/projects/${currentProject.id}/app-connections/${
+        }/api/projects/${currentProject.id}/connections/${
           existingConnection.id
         }`;
         const body = {
@@ -112,16 +115,10 @@ export default function ConnectionSetupModal({
         ? piece.name
         : `@activepieces/piece-${piece.name}`;
       const requestBody = {
-        externalId: `conn_${Date.now()}`,
         displayName,
         pieceName,
-        type: piece.auth?.type || "CUSTOM_AUTH",
+        type: isGithub ? "BASIC_AUTH" : piece.auth?.type || "CUSTOM_AUTH",
         value: authValues,
-        metadata: {
-          pieceDisplayName: piece.displayName,
-          pieceLogoUrl: piece.logoUrl,
-          createdAt: new Date().toISOString(),
-        },
       };
       const baseUrl =
         import.meta.env.VITE_BACKEND_API_URL ||
@@ -129,7 +126,7 @@ export default function ConnectionSetupModal({
         "";
       const url = `${baseUrl ? baseUrl.replace(/\/$/, "") : ""}/api/projects/${
         currentProject.id
-      }/app-connections`;
+      }/connections`;
       const response = await http.post(url, requestBody);
       onConnectionCreated(response.data);
       toastSuccess(
@@ -163,6 +160,25 @@ export default function ConnectionSetupModal({
         placeholder: "Enter connection name",
       },
     ];
+    if (isGithub) {
+      return [
+        ...commonFields,
+        {
+          name: "username",
+          label: "Username",
+          type: "text",
+          required: true,
+          placeholder: "Enter GitHub username",
+        },
+        {
+          name: "password",
+          label: "Password",
+          type: "password",
+          required: true,
+          placeholder: "Enter GitHub password",
+        },
+      ];
+    }
     if (piece.auth?.props) {
       const authFields = Object.entries(piece.auth.props).map(
         ([key, prop]) => ({
@@ -251,6 +267,7 @@ export default function ConnectionSetupModal({
                 </div>
               </div>
             )}
+            
             {formFields.map((field) => (
               <div key={field.name}>
                 <label className="mb-1.5 block text-sm font-medium text-theme-primary">

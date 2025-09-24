@@ -162,14 +162,8 @@ const createActions = (
       const state = get();
       const platformId = state.currentPlatform?.id;
       if (!platformId) return;
-      // Persisted projects available? avoid refetch
-      const existing = state.platforms.find(
-        (p) => p.id === platformId
-      )?.projects;
-      const projects =
-        Array.isArray(existing) && existing.length > 0
-          ? existing
-          : (await fetchProjectsForPlatform(platformId)).projects;
+      // Always fetch latest projects from API to keep dropdown fresh
+      const { projects } = await fetchProjectsForPlatform(platformId);
       const platforms = state.platforms.map((pl) =>
         pl.id === platformId ? { ...pl, projects } : pl
       );
