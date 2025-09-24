@@ -10,7 +10,10 @@ export function attachInterceptors(client: AxiosInstance): void {
     const token = Cookies.get(ACCESS_COOKIE);
     if (token) {
       config.headers = config.headers ?? {};
-      config.headers["Authorization"] = `Bearer ${token}`;
+      // Respect per-request Authorization if already provided
+      if (!config.headers["Authorization"]) {
+        config.headers["Authorization"] = `Bearer ${token}`;
+      }
       config.headers["ngrok-skip-browser-warning"] = "true";
     }
     return config;

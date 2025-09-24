@@ -8,6 +8,9 @@ import { extractAxiosMessage } from "../utils/authUtils";
 export function useSignIn() {
   const { signIn, restoreSession, isAuthenticated } = useAuthStore();
   const initializeFromLogin = useContextStore((s) => s.initializeFromLogin);
+  const loadProjectsForCurrentPlatform = useContextStore(
+    (s) => s.loadProjectsForCurrentPlatform
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -42,7 +45,11 @@ export function useSignIn() {
           platforms: data.user.platforms,
         });
         if (data.user.currentPlatform?.id) {
-          // lazy project list fetch handled where needed in UI
+          try {
+            await loadProjectsForCurrentPlatform();
+          } catch {
+            /* noop */
+          }
         }
         if (data.user.currentProject?.id) {
           // caller can fetch details if needed
@@ -55,7 +62,7 @@ export function useSignIn() {
         setIsSubmitting(false);
       }
     },
-    [signIn, initializeFromLogin]
+    [signIn, initializeFromLogin, loadProjectsForCurrentPlatform]
   );
 
   return { doLogin, isSubmitting, error, isAuthenticated };

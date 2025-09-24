@@ -59,8 +59,18 @@ export type FlowDetail = {
 
 function getProjectId(): string {
   const projectId = useContextStore.getState().currentProject?.id;
-  if (!projectId) throw new Error("No current project selected");
-  return projectId;
+  if (projectId) return projectId;
+  // Fallback: derive from currently opened flow in session storage
+  try {
+    const stored = sessionStorage.getItem("zw_current_flow");
+    if (stored) {
+      const parsed = JSON.parse(stored) as { projectId?: string };
+      if (parsed?.projectId) return parsed.projectId;
+    }
+  } catch {
+    /* noop */
+  }
+  throw new Error("No current project selected");
 }
 
 function mapBackendFlowToSummary(flow: unknown): FlowSummary {
@@ -133,10 +143,15 @@ export async function getFlow(flowId: string): Promise<FlowDetail> {
         ? versionsRaw.map((v) => {
             const vv =
               v && typeof v === "object" ? (v as Record<string, unknown>) : {};
-            const triggerVal = vv["trigger"];
+            const flowDataVal = vv["flowData"];
+            const flowData =
+              flowDataVal && typeof flowDataVal === "object"
+                ? (flowDataVal as Record<string, unknown>)
+                : undefined;
             const trigger =
-              triggerVal && typeof triggerVal === "object"
-                ? (triggerVal as Record<string, unknown>)
+              flowData && typeof flowData === "object"
+                ? ((flowData["trigger"] as Record<string, unknown>) ||
+                  undefined)
                 : undefined;
             return {
               id: String(vv["id"] ?? ""),
@@ -310,29 +325,44 @@ export async function saveSampleData(
   return resp.data as unknown;
 }
 
+export async function getSampleData(
+  flowId: string,
+  stepName: string,
+  type: "INPUT" | "OUTPUT" = "OUTPUT"
+): Promise<unknown> {
+  const projectId = getProjectId();
+  const resp = await http.get(
+    `/projects/${projectId}/flows/${flowId}/sample-data/${encodeURIComponent(
+      stepName
+    )}`,
+    { params: { type } }
+  );
+  return resp.data as unknown;
+}
+
 // Operations
 export async function postFlowOperation<TRequest>(
   flowId: string,
   body: FlowOperationEnvelope<TRequest>
-): Promise<void> {
+): Promise<unknown> {
   const projectId = getProjectId();
-  await http.post(`/projects/${projectId}/flows/${flowId}`, body);
+  const resp = await http.post(`/projects/${projectId}/flows/${flowId}`, body);
+  return resp.data as unknown;
 }
 
-export async function updateWebhookTrigger(
-  flowId: string,
-  payload?: Partial<UpdateTriggerPayload>
-): Promise<void> {
-  const defaultBody: UpdateTriggerPayload = {
-    type: "WEBHOOK",
-    name: "webhook",
-    displayName: "Webhook Trigger",
-    valid: true,
-    settings: {},
-  };
+export async function updateWebhookTrigger(flowId: string): Promise<void> {
   const body: FlowOperationEnvelope<UpdateTriggerPayload> = {
     type: "UPDATE_TRIGGER",
-    request: { ...defaultBody, ...payload } as UpdateTriggerPayload,
+    request: {
+      type: "WEBHOOK",
+      name: "trigger",
+      displayName: "Webhook Trigger Test Water 01",
+      settings: {
+        method: "POST",
+        authType: "NONE",
+        responseMode: "SYNC",
+      } as unknown as Record<string, unknown>,
+    } as UpdateTriggerPayload,
   };
   try {
     console.debug("[updateWebhookTrigger] flowId", flowId, "body", body);
@@ -406,19 +436,11 @@ export async function validateWorkflow(
   const data = resp.data as unknown;
   if (data && typeof data === "object") {
     const rec = data as Record<string, unknown>;
-    const inner =
-      rec["data"] && typeof rec["data"] === "object"
-        ? (rec["data"] as Record<string, unknown>)
-        : undefined;
     const valid =
-      typeof inner?.["valid"] === "boolean"
-        ? (inner["valid"] as boolean)
-        : typeof rec["valid"] === "boolean"
+      typeof rec["valid"] === "boolean"
         ? (rec["valid"] as boolean)
         : false;
-    const errors = Array.isArray(inner?.["errors"])
-      ? (inner!["errors"] as Array<{ path: string; message: string }>)
-      : Array.isArray(rec["errors"])
+    const errors = Array.isArray(rec["errors"])
       ? (rec["errors"] as Array<{ path: string; message: string }>)
       : undefined;
     try {
@@ -431,23 +453,21 @@ export async function validateWorkflow(
     }
     return { valid, errors };
   }
-  return {
-    valid: false,
-    errors: [{ path: "unknown", message: "Invalid response" }],
-  };
+  return { valid: false, errors: [{ path: "unknown", message: "Invalid response" }] };
 }
 
 // Add action helpers
 export async function addActionUnderTrigger(
   flowId: string,
   action: AddActionRequest["action"]
-): Promise<void> {
+): Promise<unknown> {
   const body: FlowOperationEnvelope<AddActionRequest> = {
     type: "ADD_ACTION",
     request: {
       parentStep: "trigger",
       stepLocationRelativeToParent: "AFTER",
       action,
+      branchIndex: 0,
     },
   };
   try {
@@ -455,7 +475,7 @@ export async function addActionUnderTrigger(
   } catch {
     /* noop */
   }
-  await postFlowOperation(flowId, body);
+  return await postFlowOperation(flowId, body);
 }
 
 export async function addActionAfter(
@@ -463,17 +483,22 @@ export async function addActionAfter(
   parentStep: string,
   location: StepLocationRelativeToParent,
   action: AddActionRequest["action"]
-): Promise<void> {
+): Promise<unknown> {
   const body: FlowOperationEnvelope<AddActionRequest> = {
     type: "ADD_ACTION",
-    request: { parentStep, stepLocationRelativeToParent: location, action },
+    request: {
+      parentStep,
+      stepLocationRelativeToParent: location,
+      action,
+      branchIndex: 0,
+    },
   };
   try {
     console.debug("[addActionAfter] body", body);
   } catch {
     /* noop */
   }
-  await postFlowOperation(flowId, body);
+  return await postFlowOperation(flowId, body);
 }
 
 export async function importFlow(
@@ -636,4 +661,55 @@ export async function changeStatus(
     /* noop */
   }
   await postFlowOperation(flowId, body);
+}
+
+// Test a specific step with provided test input and optionally save its output
+export type TestStepBody = {
+  testInput: Record<string, unknown>;
+  saveOutput: boolean;
+};
+
+export async function testStep(
+  flowId: string,
+  stepName: string,
+  body: TestStepBody
+): Promise<unknown> {
+  const projectId = getProjectId();
+  const resp = await http.post(
+    `/projects/${projectId}/flows/${flowId}/steps/${encodeURIComponent(stepName)}/test`,
+    body
+  );
+  return resp.data as unknown;
+}
+
+export type TestWebhookBody = {
+  test: boolean;
+  event: string;
+  message: string;
+  timestamp: string;
+  data: {
+    userId: string;
+    action: string;
+    environment: string;
+    flowId: string;
+  };
+};
+
+export async function testFlowWebhook(
+  flowId: string,
+  body: TestWebhookBody
+): Promise<unknown> {
+  const resp = await http.post(`/webhooks/${flowId}/test`, body);
+  return resp.data as unknown;
+}
+
+// Trigger the flow via its public webhook endpoint
+export async function runFlowWebhook(
+  flowId: string,
+  body?: unknown,
+  Authorization?: string
+): Promise<unknown> {
+  const config = Authorization ? { headers: { Authorization } } : undefined;
+  const resp = await http.post(`/webhooks/${flowId}`, body ?? {}, config);
+  return resp.data as unknown;
 }

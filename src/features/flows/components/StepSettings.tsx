@@ -1,14 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { X, Plus } from "lucide-react";
-import { toastError, toastSuccess } from "../../../components/ui/Toast";
+import { toastSuccess } from "../../../components/ui/Toast";
 import { useContextStore } from "../../../app/store/context";
 import { http } from "../../../shared/api";
-import {
-  changeWorkflowName,
-  updateAction,
-  createWebhookTrigger,
-  saveSampleData,
-} from "../services/flowService";
+import { changeWorkflowName, updateAction, testStep, getSampleData } from "../services/flowService";
 import type { Connection } from "../../../types/connection";
 
 type ActivePiece = {
@@ -79,7 +74,7 @@ export default function StepSettings({
   const [connections, setConnections] = useState<Connection[]>([]);
   const [selectedConnection, setSelectedConnection] = useState<string>("");
   const [isLoadingConnections, setIsLoadingConnections] = useState(false);
-  const [topSectionHeight, setTopSectionHeight] = useState(90);
+  const [topSectionHeight, setTopSectionHeight] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
   const [sourceCode, setSourceCode] = useState<string>("");
   const [displayName, setDisplayName] = useState<string>(
@@ -96,19 +91,28 @@ export default function StepSettings({
     if (!step?.pieceName || !currentProject?.id) return;
     try {
       setIsLoadingConnections(true);
-      const url = `/projects/${currentProject.id}/app-connections`;
-      const response = await http.get<{ connections: Connection[] }>(url);
-      const allConnections = response.data.connections || [];
-      const filteredConnections = allConnections.filter(
-        (c) => c.pieceName === step.pieceName
-      );
-      setConnections(filteredConnections);
+      const pieceParam = encodeURIComponent(step.pieceName);
+      const url = `/projects/${currentProject.id}/connections/piece/${pieceParam}`;
+      const response = await http.post(url, {});
+      const root = response.data as unknown;
+      const extract = (val: unknown): Connection[] => {
+        if (Array.isArray(val)) return val as Connection[];
+        if (val && typeof val === "object") {
+          const obj = val as Record<string, unknown>;
+          if (Array.isArray(obj.connections)) return obj.connections as Connection[];
+          if (Array.isArray(obj.data)) return obj.data as Connection[];
+          if (Array.isArray(obj.items)) return obj.items as Connection[];
+        }
+        return [] as Connection[];
+      };
+      const pieceConnections = extract(root);
+      setConnections(pieceConnections);
     } catch (error) {
       console.error("Failed to load connections:", error);
-      toastError(
-        "Failed to load connections",
-        "Unable to fetch connections for this piece"
-      );
+      // toastError(
+      //   "Failed to load connections",
+      //   "Unable to fetch connections for this piece"
+      // );
     } finally {
       setIsLoadingConnections(false);
     }
@@ -134,7 +138,7 @@ export default function StepSettings({
 
   // Removed metadata fetch
 
-  // Load sample data for bottom panel via SAVE_SAMPLE_DATA
+  // Load sample data for bottom panel when opening StepSettings
   useEffect(() => {
     const run = async () => {
       if (!isOpen || !step) return;
@@ -153,24 +157,20 @@ export default function StepSettings({
         if (lastId) flowId = lastId;
       }
       if (!flowId) return;
-      const stepName = step.name || "trigger";
-      const payload = {
-        headers: { "content-type": "application/json" },
-        body: { test: "data", items: [1, 2, 3] },
-      } as Record<string, unknown>;
-      try {
-        setIsLoadingSample(true);
-        const resp = await saveSampleData(flowId, stepName, payload);
-        setSampleResponse(resp);
+    try {
+      setIsLoadingSample(true);
+      const stepSegment = step.type === "trigger" ? "trigger" : (step.name || "trigger");
+      const resp = await getSampleData(flowId, stepSegment, "OUTPUT");
+      setSampleResponse(resp);
       } catch (error) {
-        console.error("Failed to save sample data", error);
-        setSampleResponse({ error: "Could not save sample data" });
+        console.error("Failed to load sample data", error);
+        setSampleResponse({ error: "Could not load sample data" });
       } finally {
         setIsLoadingSample(false);
       }
     };
     run();
-  }, [isOpen, step]);
+  }, [isOpen, step, currentProject?.id]);
 
   const handleConnectionSelect = (connectionId: string) => {
     setSelectedConnection(connectionId);
@@ -194,10 +194,10 @@ export default function StepSettings({
       return piece;
     } catch (error) {
       console.error("Failed to fetch piece details:", error);
-      toastError(
-        "Failed to load piece details",
-        "Unable to fetch piece configuration"
-      );
+      // toastError(
+      //   "Failed to load piece details",
+      //   "Unable to fetch piece configuration"
+      // );
       return null;
     }
   };
@@ -229,7 +229,8 @@ export default function StepSettings({
       if (!container) return;
       const rect = container.getBoundingClientRect();
       const newHeight = ((e.clientY - rect.top) / rect.height) * 100;
-      const clampedHeight = Math.max(20, Math.min(90, newHeight));
+      // Top section: 10%–80% → Bottom section: 90%–20%
+      const clampedHeight = Math.max(10, Math.min(55, newHeight));
       setTopSectionHeight(clampedHeight);
     },
     [isDragging]
@@ -434,22 +435,18 @@ export default function StepSettings({
                               ? (JSON.parse(stored) as { id?: string })
                               : undefined;
                             if (!parsed?.id) {
-                              toastError(
-                                "No flow selected",
-                                "Open a flow before saving"
-                              );
+                              // toastError(
+                              //   "No flow selected",
+                              //   "Open a flow before saving"
+                              // );
                               return;
                             }
 
                             if (step.type === "trigger") {
-                              await createWebhookTrigger(
-                                parsed.id,
-                                token.trim()
-                              );
                               setToken("");
                               toastSuccess(
-                                "Webhook configured",
-                                "Token saved and webhook trigger created"
+                                "Trigger configured",
+                                "Trigger settings updated"
                               );
                             } else if (step.type === "code") {
                               // For code nodes, use UPDATE_ACTION API
@@ -515,10 +512,10 @@ export default function StepSettings({
                             }
                           } catch (e) {
                             console.error("Failed to save", e);
-                            toastError(
-                              "Update failed",
-                              "Could not save changes"
-                            );
+                            // toastError(
+                            //   "Update failed",
+                            //   "Could not save changes"
+                            // );
                           }
                         }}
                         className="px-3 py-2 bg-theme-primary text-theme-inverse text-xs font-medium rounded-xl hover:bg-[#a08fff] transition-colors disabled:opacity-50"
@@ -553,28 +550,89 @@ export default function StepSettings({
           </div>
           <div
             className="flex flex-col min-h-0"
-            style={{ height: `${100 - topSectionHeight}%` }}
+            style={{ height: `${100 - topSectionHeight}%`, minHeight: 160, maxHeight: "90%" }}
           >
             <div className="flex-shrink-0 p-4 border-b border-white/20 dark:border-white/10">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-medium text-theme-primary">
                   Sample Data
                 </h3>
+                <button
+                  className="px-3 py-2 bg-theme-primary text-theme-inverse text-xs font-medium rounded-xl hover:bg-[#a08fff] transition-colors disabled:opacity-50"
+                  onClick={async () => {
+                    if (!step) return;
+                    try {
+                      let flowId: string | undefined;
+                      const stored = sessionStorage.getItem("zw_current_flow");
+                      if (stored) {
+                        const parsed = JSON.parse(stored) as { id?: string };
+                        if (parsed?.id) flowId = parsed.id;
+                      }
+                      if (!flowId) {
+                        const lastId = sessionStorage.getItem("zw_last_created_flow_id");
+                        if (lastId) flowId = lastId;
+                      }
+                      if (!flowId) {
+                        // toastError("No flow selected", "Open a flow before testing");
+                        return;
+                      }
+                      const stepName = step.name || "send_email_1";
+                      setIsLoadingSample(true);
+                      const pieceNameLc = (step.pieceName || "").toLowerCase();
+                      let payload: {
+                        testInput: Record<string, unknown>;
+                        saveOutput: boolean;
+                      };
+                      if (pieceNameLc.includes("whatsapp")) {
+                        payload = {
+                          testInput: {
+                            to: "917867997197",
+                            text: "Order successful",
+                          },
+                          saveOutput: true,
+                        };
+                      } else if (pieceNameLc.includes("gmail")) {
+                        payload = {
+                          testInput: {
+                            body:
+                              "Hi umang, Your order with orderid {{trigger.body.orderId}} is confirmed!! You will receive a order tracking link on WhatsApp soon!!",
+                            subject: "Order Confirmed!!",
+                            receiver: ["sheikgulf01@gmail.com"],
+                          },
+                          saveOutput: true,
+                        };
+                      } else {
+                        payload = {
+                          testInput: {},
+                          saveOutput: true,
+                        };
+                      }
+                      const response = await testStep(flowId, stepName, payload);
+                      setSampleResponse(response);
+                      toastSuccess("Test executed", "Step test completed");
+                    } catch (error) {
+                      console.error("Test failed", error);
+                      // toastError("Test failed", "Could not execute step test");
+                    } finally {
+                      setIsLoadingSample(false);
+                    }
+                  }}
+                >
+                  Test
+                </button>
               </div>
             </div>
-            <div className="flex-1 overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
-              <div className="p-4 space-y-4">
-                {isLoadingSample ? (
-                  <div className="text-sm text-theme-secondary">
-                    Loading sample data...
-                  </div>
-                ) : (
-                  <div className="bg-theme-input/50 p-3 rounded-xl border border-white/20 dark:border-white/10">
+            <div className="flex-1 overflow-hidden">
+              <div className="p-4 h-full overflow-y-auto [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
+                <div className="bg-theme-input/50 p-3 rounded-xl border border-white/20 dark:border-white/10">
+                  {isLoadingSample ? (
+                    <div className="text-sm text-theme-secondary">Loading sample data...</div>
+                  ) : (
                     <pre className="text-xs text-theme-secondary overflow-auto">
-                      {JSON.stringify(sampleResponse, null, 2)}
+                      {sampleResponse ? JSON.stringify(sampleResponse, null, 2) : "No sample data available"}
                     </pre>
-                  </div>
-                )}
+                  )}
+                </div>
               </div>
             </div>
           </div>
