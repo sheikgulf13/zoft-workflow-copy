@@ -1,7 +1,7 @@
 import { http } from "../../../shared/api";
 
-export async function listConnections(projectId: string) {
-  const url = `/projects/${projectId}/connections`;
+export async function listConnections(platformId: string) {
+  const url = `/platforms/${platformId}/connections`;
   const resp = await http.get(url);
   const connections = resp.data?.connections ?? resp.data ?? [];
   return Array.isArray(connections) ? connections : [];

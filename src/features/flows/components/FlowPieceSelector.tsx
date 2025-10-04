@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { useDebounce } from "use-debounce";
 import {
   X,
@@ -181,7 +181,7 @@ const popularPieces: FlowPiece[] = [
   },
 ];
 
-export default function FlowPieceSelector({
+function FlowPieceSelector({
   isOpen,
   onClose,
   onSelectPiece,
@@ -197,6 +197,9 @@ export default function FlowPieceSelector({
   const [selectedCategory, setSelectedCategory] = useState<Category>("explore");
   const [isLoadingPieceDetails, setIsLoadingPieceDetails] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const [selectedUtility, setSelectedUtility] = useState<
+    "sftp" | "human" | "schedule" | "tables" | "webhook" | null
+  >(null);
 
   const fetchPieces = useCallback(async () => {
     try {
@@ -234,7 +237,10 @@ export default function FlowPieceSelector({
   const fetchPieceDetails = async (pieceName: string) => {
     try {
       setIsLoadingPieceDetails(true);
-      const apiUrl = `https://cloud.activepieces.com/api/v1/pieces/@activepieces/piece-${pieceName}`;
+      const normalizedPieceName = pieceName.startsWith("@activepieces/piece-")
+        ? pieceName
+        : `@activepieces/piece-${pieceName}`;
+      const apiUrl = `https://cloud.activepieces.com/api/v1/pieces/${normalizedPieceName}`;
       const response = await fetch(apiUrl);
       if (!response.ok) throw new Error("Failed to fetch piece details");
       const pieceData = await response.json();
@@ -295,6 +301,73 @@ export default function FlowPieceSelector({
     const matchesCategory = piece.category === selectedCategory;
     return matchesSearch && matchesCategory;
   });
+
+  const utilityMenu: Array<{
+    key: "sftp" | "human" | "schedule" | "tables" | "webhook";
+    label: string;
+    logoUrl?: string;
+  }> = [
+    { key: "sftp", label: "FTP/SFTP", logoUrl: "https://cdn.activepieces.com/pieces/sftp.png" },
+    { key: "human", label: "Human Input", logoUrl: "https://via.placeholder.com/24x24?text=H" },
+    { key: "schedule", label: "Schedule", logoUrl: "https://cdn.activepieces.com/pieces/schedule.png" },
+    { key: "tables", label: "Tables", logoUrl: "https://via.placeholder.com/24x24?text=T" },
+    { key: "webhook", label: "Webhook", logoUrl: "https://cdn.activepieces.com/pieces/webhook.png" },
+  ];
+
+  const getUtilityPiece = (key: typeof utilityMenu[number]["key"]): FlowPiece => {
+    const mapToPieceName: Record<typeof utilityMenu[number]["key"], string> = {
+      sftp: "sftp",
+      human: "human",
+      schedule: "schedule",
+      tables: "tables",
+      webhook: "webhook",
+    };
+    const menu = utilityMenu.find((m) => m.key === key)!;
+    return {
+      id: mapToPieceName[key],
+      name: mapToPieceName[key],
+      displayName: menu.label,
+      logoUrl: menu.logoUrl || "https://via.placeholder.com/24x24?text=\u003F",
+      category: "utility",
+      description: undefined,
+      actions: [],
+      triggers: [],
+      version: "latest",
+    };
+  };
+
+  const getUtilityOptions = (
+    key: typeof utilityMenu[number]["key"]
+  ): FlowPieceAction[] => {
+    switch (key) {
+      case "sftp":
+        return [{ name: "new_file", displayName: "New File" }];
+      case "human":
+        return [
+          { name: "web_form", displayName: "Web Form" },
+          { name: "chat_ui", displayName: "Chat UI" },
+        ];
+      case "schedule":
+        return [
+          { name: "every_x_minutes", displayName: "Every X minutes" },
+          { name: "every_hour", displayName: "Every hour" },
+          { name: "every_day", displayName: "Every day" },
+          { name: "every_week", displayName: "Every week" },
+          { name: "every_month", displayName: "Every month" },
+          { name: "cron_expression", displayName: "Cron expression" },
+        ];
+      case "tables":
+        return [
+          { name: "new_record_created", displayName: "New record created" },
+          { name: "record_updated", displayName: "Record updated" },
+          { name: "record_deleted", displayName: "Record deleted" },
+        ];
+      case "webhook":
+        return [{ name: "webhook_trigger", displayName: "Webhook Trigger" }];
+      default:
+        return [];
+    }
+  };
 
   const handlePieceSelect = async (piece: FlowPiece) => {
     try {
@@ -443,7 +516,47 @@ export default function FlowPieceSelector({
               <div className="w-1/2 border-r border-white/20 dark:border-white/10 flex flex-col min-h-0">
                 <div className="flex-1 p-4 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
                   <div className="space-y-2">
-                    {filteredPieces.length === 0 ? (
+                    {selectedCategory === "utility" ? (
+                      utilityMenu.map((item) => {
+                        const isActive = selectedUtility === item.key;
+                        return (
+                          <button
+                            key={item.key}
+                            onClick={() => {
+                              setSelectedUtility(item.key);
+                              setSelectedPiece(getUtilityPiece(item.key));
+                            }}
+                            className={`flex items-center gap-2 p-2 text-left w-full border rounded-xl transition-all duration-200 ${
+                              isActive
+                                ? "border-[#b3a1ff] bg-[#b3a1ff]/10 shadow-sm"
+                                : "border-white/20 dark:border-white/10 hover:bg-theme-input-focus"
+                            }`}
+                          >
+                            <img
+                              src={item.logoUrl || "https://via.placeholder.com/24x24?text=?"}
+                              alt={item.label}
+                              className="w-6 h-6 rounded object-cover flex-shrink-0"
+                              onError={(e) => {
+                                (e.target as HTMLImageElement).src =
+                                  "https://via.placeholder.com/24x24?text=?";
+                              }}
+                            />
+                            <div className="flex-1 min-w-0">
+                              <div
+                                className={`text-sm font-medium truncate ${
+                                  isActive ? "text-[#b3a1ff]" : "text-theme-primary"
+                                }`}
+                              >
+                                {item.label}
+                              </div>
+                            </div>
+                            {isActive && (
+                              <div className="w-1.5 h-1.5 bg-[#b3a1ff] rounded-full flex-shrink-0"></div>
+                            )}
+                          </button>
+                        );
+                      })
+                    ) : filteredPieces.length === 0 ? (
                       <div className="text-center text-theme-secondary py-8">
                         No pieces found in this category
                       </div>
@@ -502,7 +615,47 @@ export default function FlowPieceSelector({
                 </div>
               </div>
               <div className="w-1/2 flex flex-col min-h-0">
-                {selectedPiece ? (
+                {selectedCategory === "utility" ? (
+                  <div className="flex-1 flex flex-col min-h-0">
+                    <div className="p-3 border-b border-white/20 dark:border-white/10 flex-shrink-0">
+                      <h3 className="text-base font-semibold text-theme-primary mb-1">
+                        {selectedUtility
+                          ? utilityMenu.find((m) => m.key === selectedUtility)?.label
+                          : "Select a utility"}
+                      </h3>
+                      <div className="text-xs text-theme-secondary">
+                        {selectedUtility ? "Select an option" : "Choose a utility from the left"}
+                      </div>
+                    </div>
+                    <div className="flex-1 p-4 overflow-y-auto pr-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
+                      <div className="space-y-2">
+                        {selectedUtility ? (
+                          getUtilityOptions(selectedUtility).map((opt) => (
+                            <button
+                              key={opt.name}
+                              onClick={() => {
+                                const piece = getUtilityPiece(selectedUtility);
+                                onSelectPiece(piece, opt, type);
+                                handleClose();
+                              }}
+                              className="flex items-start gap-2 p-2 text-left w-full border border-white/20 dark;border-white/10 rounded-xl hover:bg-theme-input-focus transition-all duration-200"
+                            >
+                              <div className="flex-1">
+                                <div className="text-sm font-medium text-theme-primary">
+                                  {opt.displayName}
+                                </div>
+                              </div>
+                            </button>
+                          ))
+                        ) : (
+                          <div className="text-center text-theme-secondary py-8">
+                            Select a utility to see options
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ) : selectedPiece ? (
                   <div className="flex-1 flex flex-col min-h-0">
                     {isLoadingPieceDetails ? (
                       <div className="flex items-center justify-center h-full">
@@ -600,3 +753,5 @@ export default function FlowPieceSelector({
     </div>
   );
 }
+
+export default React.memo(FlowPieceSelector);

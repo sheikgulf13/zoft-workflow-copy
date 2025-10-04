@@ -10,13 +10,21 @@ import "reactflow/dist/style.css";
 import "../../../styles/flow-editor.css";
 
 import { useWorkflow } from "../hooks/useWorkflow";
-import FlowPieceSelector, {
-  type FlowPiece,
-  type FlowPieceAction,
-  type FlowPieceTrigger,
+import type {
+  FlowPiece,
+  FlowPieceAction,
+  FlowPieceTrigger,
 } from "../components/FlowPieceSelector";
-import StepSettings from "../components/StepSettings";
-import ConnectionSetupModal from "../../connections/components/ConnectionSetupModal";
+const FlowPieceSelector = React.lazy(
+  () => import("../components/FlowPieceSelector")
+);
+const StepSettingsLazy = React.lazy(
+  () => import("../components/StepSettings")
+);
+import DataSelectorModal from "../components/DataSelectorModal";
+const ConnectionSetupModalLazy = React.lazy(
+  () => import("../../connections/components/ConnectionSetupModal")
+);
 import { nodeTypes } from "../components/nodeTypes";
 import { edgeTypes } from "../components/edgeTypes";
 import {
@@ -94,6 +102,7 @@ export default function FlowEditorPage() {
   const [splitWidth, setSplitWidth] = useState(70);
   const [isDragging, setIsDragging] = useState(false);
   const [showConnectionModal, setShowConnectionModal] = useState(false);
+  const [isDataSelectorOpen, setIsDataSelectorOpen] = useState(false);
   type ConnectionPiece = {
     name: string;
     displayName: string;
@@ -148,6 +157,11 @@ export default function FlowEditorPage() {
     };
   }, [isDirty]);
 
+  // Close Data Selector when Step Settings closes
+  useEffect(() => {
+    if (!isStepSettingsOpen) setIsDataSelectorOpen(false);
+  }, [isStepSettingsOpen]);
+
   // Validate workflow on mount; only then proceed to other operations
   useEffect(() => {
     let didRun = false;
@@ -196,17 +210,7 @@ export default function FlowEditorPage() {
           const lastId = sessionStorage.getItem("zw_last_created_flow_id");
           if (lastId) flowIdForUpdate = lastId;
         }
-        if (flowIdForUpdate) {
-          const lastCreatedId = sessionStorage.getItem("zw_last_created_flow_id");
-          if (lastCreatedId && lastCreatedId === flowIdForUpdate) {
-            await updateWebhookTrigger(flowIdForUpdate);
-            try {
-              sessionStorage.removeItem("zw_last_created_flow_id");
-            } catch {
-              /* noop */
-            }
-          }
-        }
+        // Do not auto-update trigger on first load of create page; user will configure trigger manually
         // Build canvas from backend graph
         try {
           await loadWorkflow();
@@ -397,14 +401,67 @@ export default function FlowEditorPage() {
   }, [moveAfterTimeout, moveBeforeTimeout]);
 
   const handlePieceSelect = useCallback(
-    (piece: FlowPiece, actionOrTrigger: FlowPieceAction | FlowPieceTrigger) => {
+    (piece: FlowPiece, actionOrTrigger: FlowPieceAction | FlowPieceTrigger, selectType?: "action" | "trigger") => {
       if (selectedNodeId) {
-        addPieceNode(piece, actionOrTrigger, selectedNodeId);
+        const selectedNode = nodes.find((n) => n.id === selectedNodeId);
+        const hasIncoming = edges.some((e) => e.target === selectedNodeId);
+        // Treat the first node (no incoming edges) as trigger regardless of current node.type
+        const isTriggerNode = (selectedNode?.type === "trigger") || !hasIncoming;
+        const isUtilityWebhook = piece.name === "webhook" && (actionOrTrigger as FlowPieceTrigger)?.name?.includes("webhook");
+        const isAppPieceTrigger = selectType === "trigger" && piece.category === "apps";
+        if (isTriggerNode && isUtilityWebhook) {
+          try {
+            const stored = sessionStorage.getItem("zw_current_flow");
+            const parsed = stored ? (JSON.parse(stored) as { id?: string }) : undefined;
+            const flowId = parsed?.id || sessionStorage.getItem("zw_last_created_flow_id") || "";
+            if (flowId) {
+              updateWebhookTrigger(String(flowId)).catch(() => {});
+            }
+          } catch {
+            /* noop */
+          }
+        }
+        if (isTriggerNode && isAppPieceTrigger) {
+          try {
+            const stored = sessionStorage.getItem("zw_current_flow");
+            const parsed = stored ? (JSON.parse(stored) as { id?: string }) : undefined;
+            const flowId = parsed?.id || sessionStorage.getItem("zw_last_created_flow_id") || "";
+            if (flowId) {
+              const fullPieceName = piece.name.startsWith("@activepieces/piece-") ? piece.name : `@activepieces/piece-${piece.name}`;
+              import("../services/flowService").then(({ updatePieceTrigger }) => {
+                updatePieceTrigger(String(flowId), {
+                  name: "trigger",
+                  displayName: "Piece Trigger",
+                  pieceName: fullPieceName,
+                  pieceVersion: piece.version || "latest",
+                  triggerName: (actionOrTrigger as FlowPieceTrigger).name,
+                }).catch(() => {});
+              });
+            }
+          } catch {
+            /* noop */
+          }
+        }
+        // Only add as an action when not configuring the trigger node
+        if (!isTriggerNode) {
+          // Close Step Settings immediately when starting to add an action
+          setIsStepSettingsOpen(false);
+          addPieceNode(piece, actionOrTrigger, selectedNodeId);
+        } else {
+          // Update trigger node UI label and state
+          updateNodeData(selectedNodeId, {
+            label: selectType === "trigger" ? (actionOrTrigger as FlowPieceTrigger).displayName : selectedNode?.data?.label,
+            isEmpty: false,
+            type: "trigger",
+            pieceName: piece.name,
+            triggerName: (selectType === "trigger" ? (actionOrTrigger as FlowPieceTrigger).name : undefined) as unknown as string,
+          } as unknown as { [key: string]: unknown });
+        }
         setIsPieceSelectorOpen(false);
         setSelectedNodeId(null);
       }
     },
-    [selectedNodeId, addPieceNode]
+    [selectedNodeId, addPieceNode, nodes, updateNodeData, edges]
   );
 
   const handleStepSettingsClose = useCallback(() => {
@@ -657,7 +714,7 @@ export default function FlowEditorPage() {
 
       <div
         id="flow-editor-container"
-        className={`flex-1 relative ${isDragging ? "cursor-col-resize" : ""}`}
+        className={`flex-1 relative min-h-0 ${isDragging ? "cursor-col-resize" : ""}`}
       >
         <div className="flex h-full">
           <div
@@ -753,7 +810,7 @@ export default function FlowEditorPage() {
 
           {isStepSettingsOpen && (
             <div
-              className="w-1 bg-white/20 dark:bg-white/10 hover:bg-white/30 dark:hover:bg-white/20 cursor-col-resize flex items-center justify-center relative transition-colors duration-200"
+              className="w-1 min-w-[4px] bg-white/20 dark:bg-white/10 hover:bg-white/30 dark:hover:bg-white/20 cursor-col-resize flex items-center justify-center relative transition-colors duration-200"
               onMouseDown={handleMouseDown}
             >
               <div className="absolute inset-0 flex items-center justify-center">
@@ -764,35 +821,44 @@ export default function FlowEditorPage() {
 
           {isStepSettingsOpen && selectedNode && (
             <div
-              className="bg-theme-form/95 backdrop-blur-md border-l border-white/20 dark:border-white/10 maxh-[93vh] overflow-hidden"
+              className="bg-theme-form/95 backdrop-blur-md border-l border-white/20 dark:border-white/10 h-full min-h-0 overflow-hidden"
               style={{ width: `${100 - splitWidth}%` }}
             >
-              <StepSettings
-                isOpen={isStepSettingsOpen}
-                step={{
-                  id: selectedNode.id,
-                  name: selectedNode.data.name || selectedNode.data.label,
-                  type:
-                    selectedNode.data.type === "trigger"
-                      ? "trigger"
-                      : selectedNode.data.type === "code"
-                      ? "code"
-                      : selectedNode.data.type === "loop"
-                      ? "loop"
-                      : selectedNode.data.type === "router"
-                      ? "router"
-                      : "action",
-                  pieceName: selectedNode.data.pieceName,
-                  actionName: selectedNode.data.actionName,
-                  triggerName: selectedNode.data.triggerName,
-                  displayName: selectedNode.data.label,
-                  logoUrl: selectedNode.data.logoUrl,
-                  config: selectedNode.data.config,
-                }}
-                onClose={handleStepSettingsClose}
-                onUpdateStep={handleStepUpdate}
-                onConnectionModalOpen={handleConnectionModalOpen}
-              />
+              <React.Suspense
+                fallback={
+                  <div className="h-full w-full flex items-center justify-center text-theme-secondary">
+                    Loading settings...
+                  </div>
+                }
+              >
+                <StepSettingsLazy
+                  isOpen={isStepSettingsOpen}
+                  step={{
+                    id: selectedNode.id,
+                    name: selectedNode.data.name || selectedNode.data.label,
+                    type:
+                      selectedNode.data.type === "trigger"
+                        ? "trigger"
+                        : selectedNode.data.type === "code"
+                        ? "code"
+                        : selectedNode.data.type === "loop"
+                        ? "loop"
+                        : selectedNode.data.type === "router"
+                        ? "router"
+                        : "action",
+                    pieceName: selectedNode.data.pieceName,
+                    actionName: selectedNode.data.actionName,
+                    triggerName: selectedNode.data.triggerName,
+                    displayName: selectedNode.data.label,
+                    logoUrl: selectedNode.data.logoUrl,
+                    config: selectedNode.data.config,
+                  }}
+                  onClose={handleStepSettingsClose}
+                  onUpdateStep={handleStepUpdate}
+                  onConnectionModalOpen={handleConnectionModalOpen}
+                onOpenDataSelector={() => setIsDataSelectorOpen(true)}
+                />
+              </React.Suspense>
             </div>
           )}
         </div>
@@ -972,35 +1038,75 @@ export default function FlowEditorPage() {
       </div>
 
       {isPieceSelectorOpen && (
-        <FlowPieceSelector
-          isOpen={isPieceSelectorOpen}
-          onClose={() => {
-            setIsPieceSelectorOpen(false);
-            setSelectedNodeId(null);
-          }}
-          onSelectPiece={handlePieceSelect}
-          type="action"
-          nodePosition={pieceSelectorPosition}
-        />
+        <React.Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div className="px-4 py-2 rounded-xl bg-theme-form/95 border border-white/20 dark:border-white/10 text-theme-secondary shadow-lg">
+                Loading pieces...
+              </div>
+            </div>
+          }
+        >
+          <FlowPieceSelector
+            isOpen={isPieceSelectorOpen}
+            onClose={() => {
+              setIsPieceSelectorOpen(false);
+              setSelectedNodeId(null);
+            }}
+            onSelectPiece={handlePieceSelect}
+            type={selectedNodeId ? (nodes.find((n) => n.id === selectedNodeId)?.type === "trigger" ? "trigger" : "action") : "action"}
+            nodePosition={pieceSelectorPosition}
+          />
+        </React.Suspense>
       )}
+      <DataSelectorModal
+        isOpen={isDataSelectorOpen}
+        onClose={() => setIsDataSelectorOpen(false)}
+        previousNodes={(function getPrev(){
+          const prev: Array<{ id: string; displayName: string; stepName?: string }> = [];
+          try {
+            const nodesList = (reactFlowInstance?.getNodes?.() as Array<{ id: string; data?: { label?: string; name?: string } }>) || [];
+            const selectedIdx = selectedNodeId ? nodesList.findIndex((n) => n.id === selectedNodeId) : -1;
+            const upto = selectedIdx >= 0 ? selectedIdx : nodesList.length;
+            type NodeLite = { id: string; data?: { label?: string; name?: string } };
+            (nodesList as NodeLite[]).slice(0, upto).forEach((n) => {
+              const label = n?.data?.label;
+              if (n && n.id && typeof label === "string") {
+                prev.push({ id: n.id, displayName: label, stepName: n?.data?.name || n.id });
+              }
+            });
+          } catch { /* noop */ }
+          return prev;
+        })()}
+      />
       {showConnectionModal && connectionPiece && (
-        <ConnectionSetupModal
-          isOpen={showConnectionModal}
-          onClose={handleConnectionModalClose}
-          piece={{
-            id: connectionPiece.name,
-            name: connectionPiece.name,
-            displayName: connectionPiece.displayName,
-            logoUrl:
-              connectionPiece.logoUrl ||
-              "https://via.placeholder.com/32x32?text=?",
-            description: "",
-            categories: [],
-            actions: 0,
-            triggers: 0,
-          }}
-          onConnectionCreated={handleConnectionCreated}
-        />
+        <React.Suspense
+          fallback={
+            <div className="fixed inset-0 z-50 flex items-center justify-center">
+              <div className="px-4 py-2 rounded-xl bg-theme-form/95 border border-white/20 dark:border-white/10 text-theme-secondary shadow-lg">
+                Loading connection...
+              </div>
+            </div>
+          }
+        >
+          <ConnectionSetupModalLazy
+            isOpen={showConnectionModal}
+            onClose={handleConnectionModalClose}
+            piece={{
+              id: connectionPiece.name,
+              name: connectionPiece.name,
+              displayName: connectionPiece.displayName,
+              logoUrl:
+                connectionPiece.logoUrl ||
+                "https://via.placeholder.com/32x32?text=?",
+              description: "",
+              categories: [],
+              actions: 0,
+              triggers: 0,
+            }}
+            onConnectionCreated={handleConnectionCreated}
+          />
+        </React.Suspense>
       )}
       {showUnsavedWarning && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">

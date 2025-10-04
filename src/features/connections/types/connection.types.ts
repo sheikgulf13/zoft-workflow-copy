@@ -12,9 +12,15 @@ export type ActivePiece = {
   auth?: {
     required: boolean;
     description: string;
-    props: Record<
+    props?: Record<
       string,
-      { displayName: string; required: boolean; type: string }
+      {
+        displayName: string;
+        required: boolean;
+        type: "SHORT_TEXT" | "SECRET_TEXT" | "STATIC_DROPDOWN" | "CHECKBOX" | "NUMBER" | string;
+        defaultValue?: unknown;
+        options?: { options?: Array<{ label: string; value: string | number }> };
+      }
     >;
     type: string;
     displayName: string;

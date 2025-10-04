@@ -25,13 +25,35 @@ const FlowEditorPage = lazy(
 const ConnectionsPage = lazy(
   () => import("./features/connections/pages/ConnectionsPage")
 );
+const OAuthCallbackPage = lazy(
+  () => import("./features/connections/pages/OAuthCallbackPage")
+);
+const PlatformAdminLayout = lazy(
+  () => import("./features/platform-admin/pages/PlatformAdminLayout")
+);
+const InvitationsPage = lazy(
+  () => import("./features/platform-admin/pages/InvitationsPage")
+);
+const UsersPage = lazy(
+  () => import("./features/platform-admin/pages/UsersPage")
+);
 
 function App() {
   return (
     <BrowserRouter>
       <Toaster position="top-right" richColors closeButton />
       <Suspense
-        fallback={<div className="container-page py-10">Loading...</div>}
+        fallback={
+          <div className="flex items-center justify-center min-h-screen bg-theme-background">
+            <div className="flex flex-col items-center gap-4">
+              <div className="relative">
+                <div className="w-12 h-12 border-4 border-theme-secondary/20 border-t-[#b3a1ff] rounded-full animate-spin"></div>
+                <div className="absolute inset-0 w-12 h-12 border-4 border-transparent border-r-[#b3a1ff]/50 rounded-full animate-spin" style={{ animationDirection: 'reverse', animationDuration: '1.5s' }}></div>
+              </div>
+              <div className="text-theme-primary font-medium">Loading...</div>
+            </div>
+          </div>
+        }
       >
         <Routes>
           <Route path="/auth/sign-in" element={<SignInPage />} />
@@ -47,6 +69,7 @@ function App() {
           />
           <Route path="/reset-password" element={<ResetPasswordPage />} />
           <Route path="/verify-email" element={<SendVerificationPage />} />
+          <Route path="/oauth" element={<OAuthCallbackPage />} />
           <Route path="/" element={<AppLayout />}>
             <Route index element={<Navigate to="home" replace />} />
             <Route path="home" element={<HomePage />} />
@@ -68,12 +91,11 @@ function App() {
               path="todos"
               element={<div className="container-page py-6">Todos</div>}
             />
-            <Route
-              path="enter-platform-admin"
-              element={
-                <div className="container-page py-6">Enter Platform Admin</div>
-              }
-            />
+            <Route path="enter-platform-admin" element={<PlatformAdminLayout />}>
+              <Route index element={<InvitationsPage />} />
+              <Route path="invitations" element={<InvitationsPage />} />
+              <Route path="users" element={<UsersPage />} />
+            </Route>
             <Route path="connections" element={<ConnectionsPage />} />
             <Route
               path="tutorials"

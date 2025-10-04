@@ -31,3 +31,7 @@ export async function fetchProjectsForPlatform(
     projects: Array<{ id: string; name: string; description?: string }>;
   };
 }
+
+export async function updateProjectContext(projectId: string): Promise<void> {
+  await http.post("/context/project", { projectId });
+}

@@ -82,84 +82,6 @@ export function useWorkflow() {
     []
   );
 
-  // Fetch backend graph and assign backend-generated names to existing canvas nodes
-  const syncNamesFromBackend = useCallback(async () => {
-    try {
-      const stored = sessionStorage.getItem("zw_current_flow");
-      const parsed = stored ? (JSON.parse(stored) as { id?: string }) : undefined;
-      let flowId = parsed?.id;
-      if (!flowId) {
-        const lastId = sessionStorage.getItem("zw_last_created_flow_id");
-        if (lastId) flowId = lastId;
-      }
-      if (!flowId) return;
-      const raw = (await getFlowVersionGraph(flowId)) as Record<string, unknown>;
-      const dataRoot =
-        raw && typeof raw === "object"
-          ? ((raw as Record<string, unknown>)["data"] as Record<string, unknown> | undefined)
-          : undefined;
-      const versions = Array.isArray(dataRoot?.["versions"]) ? (dataRoot!["versions"] as Array<Record<string, unknown>>) : [];
-      const first = versions.length > 0 ? versions[0] : undefined;
-      const trigWrap = first && typeof first === "object" ? ((first["trigger"] as Record<string, unknown> | undefined) || undefined) : undefined;
-      const triggerNode = trigWrap && typeof trigWrap === "object" ? ((trigWrap["trigger"] as Record<string, unknown> | undefined) || undefined) : undefined;
-      if (!triggerNode) return;
-      const normalizeType = (t: string): NodeType => {
-        switch (t) {
-          case "PIECE":
-            return "action";
-          case "CODE":
-            return "code";
-          case "ROUTER":
-            return "router";
-          case "LOOP_ON_ITEMS":
-            return "loop";
-          case "WEBHOOK":
-            return "trigger";
-          default:
-            return "action";
-        }
-      };
-      const backendNodes: Array<{ type: NodeType; name?: string; displayName?: string; pieceName?: string; actionName?: string }> = [];
-      const queue: Array<Record<string, unknown>> = [triggerNode];
-      while (queue.length > 0) {
-        const current = queue.shift() as Record<string, unknown>;
-        const typeStr = String(current["type"] ?? "");
-        const type = normalizeType(typeStr);
-        const displayName = (current["displayName"] as string) || undefined;
-        const name = (current["name"] as string) || undefined;
-        const settings = (current["settings"] as Record<string, unknown>) || {};
-        const pieceName = (settings["pieceName"] as string) || undefined;
-        const actionName = (settings["actionName"] as string) || undefined;
-        backendNodes.push({ type, name, displayName, pieceName, actionName });
-        const next = current["nextAction"];
-        if (Array.isArray(next)) {
-          next.forEach((n) => {
-            if (n && typeof n === "object") queue.push(n as Record<string, unknown>);
-          });
-        } else if (next && typeof next === "object") {
-          queue.push(next as Record<string, unknown>);
-        }
-      }
-      setNodes((nds) =>
-        nds.map((n) => {
-          const d = n.data as Partial<WorkflowNodeData>;
-          // Match by type and identifiers (prefer pieceName/actionName when present)
-          const match = backendNodes.find((bn) => {
-            if (bn.type !== (d.type as NodeType)) return false;
-            if (bn.type === "trigger") return true;
-            if (d.pieceName && d.actionName)
-              return bn.pieceName === d.pieceName && bn.actionName === d.actionName;
-            return bn.displayName === (d.label as string | undefined);
-          });
-          if (match?.name) return { ...n, data: { ...(n.data as WorkflowNodeData), name: match.name } } as Node<WorkflowNodeData>;
-          return n;
-        })
-      );
-    } catch {
-      // best-effort, ignore errors
-    }
-  }, [setNodes]);
-
   // (Removed unused resolveBackendStepName to avoid dead code)
 
   const initializeWorkflow = useCallback(() => {
@@ -171,10 +93,10 @@ export function useWorkflow() {
         type: "trigger",
         position: { x: 400, y: 100 },
         data: {
-          label: "Webhook Trigger",
+          label: "1. Add Trigger",
           type: "trigger",
           status: "idle",
-          isEmpty: false,
+          isEmpty: true,
           name: "webhook",
         },
       },
@@ -648,6 +570,8 @@ export function useWorkflow() {
     ) => {
       // Optimistically mark the node as configured with label
       const existingNode = nodes.find((n) => n.id === nodeId);
+      const prevNodes = nodes.map((n) => ({ ...n, data: { ...(n.data as Partial<WorkflowNodeData>) } }));
+      const prevEdges = edges.map((e) => ({ ...e }));
       const baseName = slugify(
         (action as FlowPieceAction).name || piece.name || "action"
       );
@@ -754,7 +678,7 @@ export function useWorkflow() {
           const parentStepName = parentData.name || parentNode.id;
           response = await addActionAfter(flowId, parentStepName, "AFTER", actionPayload);
         }
-        // Update only the selected node's name from response
+        // Update only the selected node's name from response, and extract action props
         try {
           const root = response as Record<string, unknown>;
           const data = (root?.["data"] as Record<string, unknown>) || {};
@@ -773,14 +697,86 @@ export function useWorkflow() {
               )
             );
           }
+
+          // Heuristically extract props for the selected action from response
+          const targetActionName = (action as FlowPieceAction).name || "";
+          const findPropsForAction = (obj: unknown): Record<string, unknown> | undefined => {
+            if (!obj || typeof obj !== "object") return undefined;
+            const rec = obj as Record<string, unknown>;
+            // Common shape: { actions: { [actionName]: { props: {...} } } }
+            const actionsObj = rec["actions"];
+            if (actionsObj && typeof actionsObj === "object") {
+              const aRec = actionsObj as Record<string, unknown>;
+              const target = aRec[targetActionName];
+              if (target && typeof target === "object") {
+                const props = (target as Record<string, unknown>)["props"];
+                if (props && typeof props === "object") return props as Record<string, unknown>;
+              }
+            }
+            // Alternate: object keyed directly by action name
+            const direct = rec[targetActionName];
+            if (direct && typeof direct === "object") {
+              const props = (direct as Record<string, unknown>)["props"];
+              if (props && typeof props === "object") return props as Record<string, unknown>;
+            }
+            // Recurse
+            for (const val of Object.values(rec)) {
+              const found = findPropsForAction(val);
+              if (found) return found;
+            }
+            return undefined;
+          };
+          let propsObj = findPropsForAction(root);
+          // Fallback to fetching piece details if props not present in response
+          if (!propsObj) {
+            try {
+              const normalizedPieceName = piece.name.startsWith("@activepieces/piece-") ? piece.name : `@activepieces/piece-${piece.name}`;
+              const resp = await fetch(`https://cloud.activepieces.com/api/v1/pieces/${normalizedPieceName}`);
+              if (resp.ok) {
+                const pieceSchema = (await resp.json()) as Record<string, unknown>;
+                const actionsSchema = (pieceSchema["actions"] as Record<string, unknown>) || {};
+                const actionSchema = (actionsSchema[targetActionName] as Record<string, unknown>) || {};
+                const fallbackProps = (actionSchema["props"] as Record<string, unknown>) || undefined;
+                if (fallbackProps) propsObj = fallbackProps;
+              }
+            } catch {
+              /* noop */
+            }
+          }
+
+          if (propsObj && typeof propsObj === "object") {
+            const propNames = Object.keys(propsObj);
+            if (propNames.length > 0) {
+              setNodes((nds) =>
+                nds.map((node) =>
+                  node.id === nodeId
+                    ? ({
+                        ...node,
+                        data: {
+                          ...node.data,
+                          config: {
+                            ...(node.data as WorkflowNodeData).config,
+                            optionProps: propNames,
+                          },
+                        },
+                      } as Node<WorkflowNodeData>)
+                    : node
+                )
+              );
+            }
+          }
         } catch {
           // best-effort
         }
       } catch (e) {
         console.warn("ADD_ACTION failed", e);
+        // Revert optimistic UI on failure
+        setNodes(prevNodes as Node<WorkflowNodeData>[]);
+        setEdges(prevEdges as Edge[]);
+        setIsDirty(false);
       }
     },
-    [setNodes, nodes, edges, slugify, generateUniqueStepName, syncNamesFromBackend]
+    [setNodes, setEdges, nodes, edges, slugify, generateUniqueStepName]
   );
 
   const addEmptyNode = useCallback(
@@ -1951,6 +1947,17 @@ export function useWorkflow() {
         initializeWorkflow();
         return;
       }
+      // If this is the first time after creating a new flow, ignore backend population
+      try {
+        const lastCreatedId = sessionStorage.getItem("zw_last_created_flow_id");
+        if (lastCreatedId && lastCreatedId === flowId) {
+          initializeWorkflow();
+          sessionStorage.removeItem("zw_last_created_flow_id");
+          return;
+        }
+      } catch {
+        // safe to ignore
+      }
       const raw = (await getFlowVersionGraph(flowId)) as Record<
         string,
         unknown
@@ -1986,6 +1993,24 @@ export function useWorkflow() {
           ? ((triggerContainer["trigger"] as Record<string, unknown> | undefined) || undefined)
           : undefined;
       if (!triggerNode) {
+        initializeWorkflow();
+        return;
+      }
+
+      // Decide how to initialize based on backend graph content
+      const hasChildren = (() => {
+        const next = (triggerNode as Record<string, unknown>)["nextAction"];
+        if (Array.isArray(next)) return next.length > 0;
+        return !!(next && typeof next === "object");
+      })();
+      const isPlaceholderTrigger = (() => {
+        const t = String((triggerNode as Record<string, unknown>)["type"] ?? "").toUpperCase();
+        const disp = String((triggerNode as Record<string, unknown>)["displayName"] ?? "");
+        const nm = String((triggerNode as Record<string, unknown>)["name"] ?? "");
+        return t === "EMPTY" && disp === "Select Trigger" && nm === "trigger";
+      })();
+      if (!hasChildren && isPlaceholderTrigger) {
+        // Show two empty nodes: Add Trigger + Add Action
         initializeWorkflow();
         return;
       }
@@ -2114,6 +2139,31 @@ export function useWorkflow() {
       }
 
       // Mark all nodes as running briefly, then restore to idle
+      // If backend provided only the trigger (non-placeholder), append an empty second node
+      if (nodesAcc.length === 1 && !hasChildren && !isPlaceholderTrigger) {
+        const xGap = 260;
+        const secondId = generateNodeId();
+        const uniqueSecondName = generateUniqueStepName("action");
+        nodesAcc.push({
+          id: secondId,
+          type: "action",
+          position: { x: 150 + xGap, y: 200 },
+          data: {
+            label: "2. Add Action",
+            type: "action",
+            status: "idle",
+            isEmpty: true,
+            name: uniqueSecondName,
+          },
+        } as Node<WorkflowNodeData>);
+        edgesAcc.push({
+          id: `edge-${root.id}-${secondId}`,
+          source: root.id,
+          target: secondId,
+          type: "custom",
+        });
+      }
+
       setNodes(
         nodesAcc.map((n) => ({ ...n, data: { ...n.data, status: "running" } }))
       );
@@ -2127,7 +2177,7 @@ export function useWorkflow() {
     } catch {
       // toastError("Load failed", "Failed to load workflow. Please try again.");
     }
-  }, [initializeWorkflow, generateNodeId, setNodes, setEdges]);
+  }, [initializeWorkflow, generateNodeId, setNodes, setEdges, generateUniqueStepName]);
 
   const setReactFlowInstance = useCallback((instance: ReactFlowInstance) => {
     reactFlowInstance.current = instance;

@@ -25,12 +25,13 @@ export default function ConnectionsPage() {
   );
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const currentProject = useContextStore((s) => s.currentProject);
+  const currentPlatform = useContextStore((s) => s.currentPlatform);
 
   const fetchConnections = useCallback(async () => {
-    if (!currentProject?.id) return;
+    if (!currentPlatform?.id) return;
     setIsLoading(true);
     try {
-      const data = await listConnections(currentProject.id);
+      const data = await listConnections(currentPlatform.id);
       setConnections(data);
     } catch {
       toastError(
@@ -40,7 +41,7 @@ export default function ConnectionsPage() {
     } finally {
       setIsLoading(false);
     }
-  }, [currentProject?.id]);
+  }, [currentPlatform?.id]);
 
   useEffect(() => {
     fetchConnections();
@@ -137,15 +138,29 @@ export default function ConnectionsPage() {
         <ConnectionSetupModal
           isOpen={isSetupModalOpen}
           onClose={() => {
+            // If editing, close everything; if creating, go back to pieces list
             setIsSetupModalOpen(false);
-            setSelectedPiece(null);
-            setEditConnection(null);
+            if (editConnection) {
+              setIsModalOpen(false);
+              setSelectedPiece(null);
+              setEditConnection(null);
+            } else {
+              setIsModalOpen(true);
+              setEditConnection(null);
+            }
           }}
           piece={selectedPiece}
           onConnectionCreated={handleConnectionCreated}
           mode={editConnection ? "edit" : "create"}
           existingConnection={editConnection ?? undefined}
           onConnectionUpdated={handleConnectionUpdated}
+          onSuccessClose={() => {
+            // Close both modals on successful creation
+            setIsSetupModalOpen(false);
+            setIsModalOpen(false);
+            setSelectedPiece(null);
+            setEditConnection(null);
+          }}
         />
       )}
 

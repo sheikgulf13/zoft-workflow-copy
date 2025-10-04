@@ -384,6 +384,7 @@ type UpdatePieceTriggerOptions = {
   pieceVersion?: string;
   triggerName: string;
   input?: Record<string, unknown>;
+  auth?: Record<string, unknown>;
 };
 
 export async function updatePieceTrigger(
@@ -398,8 +399,10 @@ export async function updatePieceTrigger(
       displayName: opts.displayName,
       valid: true,
       settings: {
+        auth: opts.auth,
         pieceName: opts.pieceName,
-        pieceVersion: opts.pieceVersion ?? "latest",
+        //pieceVersion: opts.pieceVersion ?? "latest",
+        pieceVersion: "0.0.7",
         triggerName: opts.triggerName,
         input: opts.input ?? {},
       } as unknown as Record<string, unknown>,

@@ -26,14 +26,12 @@ export default function ConnectionsModal({
     }
   }, [isOpen, pieces.length]);
   useEffect(() => {
-    const githubOnly = pieces.filter(
-      (p) =>
-        p.name?.toLowerCase().includes("github") ||
-        p.displayName?.toLowerCase().includes("github")
-    );
+    const q = searchQuery.toLowerCase();
     setFilteredPieces(
-      githubOnly.filter((p) =>
-        p.displayName.toLowerCase().includes(searchQuery.toLowerCase())
+      pieces.filter(
+        (p) =>
+          p.displayName.toLowerCase().includes(q) ||
+          p.name.toLowerCase().includes(q)
       )
     );
   }, [searchQuery, pieces]);
@@ -47,13 +45,9 @@ export default function ConnectionsModal({
       );
       if (!response.ok) throw new Error("Failed to fetch pieces");
       const data = await response.json();
-      const githubOnly = (data ?? []).filter(
-        (p: ActivePiece) =>
-          p.name?.toLowerCase().includes("github") ||
-          p.displayName?.toLowerCase().includes("github")
-      );
-      setPieces(githubOnly);
-      setFilteredPieces(githubOnly);
+      const allPieces: ActivePiece[] = data ?? [];
+      setPieces(allPieces);
+      setFilteredPieces(allPieces);
     } catch (error) {
       console.error("Failed to fetch pieces:", error);
       toastError(

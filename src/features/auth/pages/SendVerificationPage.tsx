@@ -25,7 +25,7 @@ export default function SendVerificationPage() {
     resolver: zodResolver(schema),
     defaultValues: { email: "" },
   });
-  const [isSent, setIsSent] = useState(false);
+  const [isSent, setIsSent] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
 

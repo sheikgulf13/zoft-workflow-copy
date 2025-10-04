@@ -31,6 +31,7 @@ import {
 } from "lucide-react";
 import { toastError, toastSuccess } from "../../../../components/ui/Toast";
 import { useContextStore } from "../../../../app/store/context";
+import { updateProjectContext } from "../../../../app/store/context/services";
 import { http } from "../../../../shared/api";
 import { ThemeToggle } from "../../../../components/ui/ThemeToggle";
 
@@ -107,6 +108,7 @@ function AppLayout() {
 
   // Check if we're on the flow editor page
   const isFlowEditor = location.pathname === "/flows/create";
+  const isPlatformAdmin = location.pathname.startsWith("/enter-platform-admin");
 
   // Close dropdowns when clicking outside
   useEffect(() => {
@@ -290,6 +292,14 @@ function AppLayout() {
                     }
                     setIsDropdownOpen(false);
                     toastSuccess("Project switched", proj.name);
+                    // Inform backend about project context switch
+                    (async () => {
+                      try {
+                        await updateProjectContext(proj.id);
+                      } catch {
+                        // silent; non-blocking for UX
+                      }
+                    })();
                     // Fetch latest details for selected project
                     (async () => {
                       try {
@@ -496,7 +506,7 @@ function AppLayout() {
         </aside>
 
         <main className="flex-1 overflow-y-auto bg-theme-background scrollbar-theme">
-          <div className={location.pathname === "/home" ? "" : "p-8"}>
+          <div className={location.pathname === "/home" || isPlatformAdmin ? "" : "p-8"}>
             <Outlet />
           </div>
         </main>

@@ -1,11 +1,12 @@
-import { useEffect, useState } from "react";
-import { X } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { X, ChevronDown } from "lucide-react";
 import { useForm } from "react-hook-form";
 import { toastError, toastSuccess } from "../../../components/ui/Toast";
 import { useContextStore } from "../../../app/store/context";
 import { http } from "../../../shared/api";
 import type { Connection } from "../../../types/connection";
 import type { ActivePiece } from "../types/connection.types";
+import { createOAuthAuthUrl } from "../services/oauthService";
 
 type ConnectionSetupModalProps = {
   isOpen: boolean;
@@ -15,11 +16,22 @@ type ConnectionSetupModalProps = {
   mode?: "create" | "edit";
   existingConnection?: Connection | null;
   onConnectionUpdated?: (connection: Connection) => void;
+  onSuccessClose?: () => void;
 };
 
 type ConnectionFormData = {
   displayName: string;
-  [key: string]: string;
+  [key: string]: unknown;
+};
+
+type FieldDef = {
+  name: string;
+  label: string;
+  type: "text" | "password" | "select" | "checkbox" | "number";
+  required?: boolean;
+  placeholder?: string;
+  defaultValue?: string | number | boolean;
+  options?: Array<{ label: string; value: string }>;
 };
 
 export default function ConnectionSetupModal({
@@ -30,32 +42,47 @@ export default function ConnectionSetupModal({
   mode = "create",
   existingConnection,
   onConnectionUpdated,
+  onSuccessClose,
 }: ConnectionSetupModalProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [isUpdating, setIsUpdating] = useState(false);
+  const [openSelect, setOpenSelect] = useState<string | null>(null);
   const currentProject = useContextStore((state) => state.currentProject);
+  const currentPlatform = useContextStore((state) => state.currentPlatform);
   const isGithub =
     piece?.name?.toLowerCase().includes("github") ||
     piece?.displayName?.toLowerCase().includes("github");
 
   const form = useForm<ConnectionFormData>({
-    defaultValues: { displayName: `${piece.displayName} Connection` },
+    defaultValues: { displayName: `${piece.displayName} Connection`, scope: "platform" },
   });
+  const hasOAuthCode = !!form.watch("code");
+  const selectedScope = (form.watch("scope") as string) || "platform";
 
   useEffect(() => {
     if (!isOpen) return;
     if (mode === "edit" && existingConnection) {
-      form.reset({ displayName: existingConnection.displayName });
+      form.reset({ displayName: existingConnection.displayName, scope: "platform" });
     } else {
-      form.reset({ displayName: `${piece.displayName} Connection` });
+      form.reset({ displayName: `${piece.displayName} Connection`, scope: "platform" });
     }
   }, [isOpen, mode, existingConnection, piece.displayName, form]);
 
+  // (auto-prefill removed to avoid hook ordering issue; defaults still appear in UI)
+
   const handleSubmit = async (data: ConnectionFormData) => {
-    if (!currentProject?.id) {
+    const scope = selectedScope;
+    if (scope === "project" && !currentProject?.id) {
       toastError(
         "No project selected",
-        "Please select a project to create a connection"
+        "Please select a project to create a project-scoped connection"
+      );
+      return;
+    }
+    if (!currentPlatform?.id) {
+      toastError(
+        "No platform selected",
+        "Please select a platform to create a connection"
       );
       return;
     }
@@ -68,6 +95,13 @@ export default function ConnectionSetupModal({
       }
       if (displayName === existingConnection.displayName) {
         toastError("No changes detected", "Update the name to save changes");
+        return;
+      }
+      if (!currentProject?.id) {
+        toastError(
+          "No project selected",
+          "Cannot update a connection without a project context"
+        );
         return;
       }
       setIsUpdating(true);
@@ -114,18 +148,33 @@ export default function ConnectionSetupModal({
       const pieceName = piece.name.startsWith("@activepieces/piece-")
         ? piece.name
         : `@activepieces/piece-${piece.name}`;
-      const requestBody = {
-        displayName,
-        pieceName,
-        type: isGithub ? "BASIC_AUTH" : piece.auth?.type || "CUSTOM_AUTH",
-        value: authValues,
-      };
+      const oauthCode = form.getValues("code");
+      const safeDisplayName = (displayName || "").trim() || `${piece.displayName} Connection`;
+      const requestBody = oauthCode
+        ? {
+            displayName: safeDisplayName,
+            pieceName,
+            type: "PLATFORM_OAUTH2",
+            code: oauthCode,
+            ...(scope === "project" && currentProject?.id
+              ? { projectIds: [currentProject.id] }
+              : {}),
+          }
+        : {
+            displayName: safeDisplayName,
+            pieceName,
+            type: isGithub ? "BASIC_AUTH" : piece.auth?.type || "CUSTOM_AUTH",
+            value: authValues,
+            ...(scope === "project" && currentProject?.id
+              ? { projectIds: [currentProject.id] }
+              : {}),
+          };
       const baseUrl =
         import.meta.env.VITE_BACKEND_API_URL ||
         import.meta.env.BACKEND_API_URL ||
         "";
-      const url = `${baseUrl ? baseUrl.replace(/\/$/, "") : ""}/api/projects/${
-        currentProject.id
+      const url = `${baseUrl ? baseUrl.replace(/\/$/, "") : ""}/api/platforms/${
+        currentPlatform.id
       }/connections`;
       const response = await http.post(url, requestBody);
       onConnectionCreated(response.data);
@@ -133,7 +182,11 @@ export default function ConnectionSetupModal({
         "Connection created",
         `${displayName} has been successfully created`
       );
-      onClose();
+      if (onSuccessClose) {
+        onSuccessClose();
+      } else {
+        onClose();
+      }
       form.reset();
     } catch (error: unknown) {
       console.error("Failed to create connection:", error);
@@ -150,8 +203,72 @@ export default function ConnectionSetupModal({
     }
   };
 
-  const getFormFields = () => {
-    const commonFields = [
+  const handleGoogleOAuth = async () => {
+    try {
+      const rawPieceName = piece.name.startsWith("@activepieces/piece-")
+        ? piece.name
+        : `@activepieces/piece-${piece.name}`;
+      const { authUrl } = await createOAuthAuthUrl(rawPieceName);
+      const code = await openPopupAndGetCode(authUrl);
+      if (code) {
+        form.setValue("code", code as unknown as string, { shouldValidate: true });
+        toastSuccess("Code received", "Continue to create connection");
+      }
+    } catch (e) {
+      const message =
+        e instanceof Error ? e.message : "Failed to start OAuth flow";
+      toastError("OAuth error", message);
+    }
+  };
+
+  function openPopupAndGetCode(url: string): Promise<string | null> {
+    return new Promise((resolve) => {
+      const width = 500;
+      const height = 700;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      const popup = window.open(
+        url,
+        "oauth_popup",
+        `width=${width},height=${height},left=${left},top=${top}`
+      );
+      if (!popup) return resolve(null);
+
+      const onMessage = (event: MessageEvent) => {
+        const data = event.data as { type?: string; code?: string };
+        if (data && data.type === "OAUTH_CODE" && data.code) {
+          window.removeEventListener("message", onMessage);
+          try { popup.close(); } catch {/* ignore */}
+          resolve(data.code);
+        }
+      };
+      window.addEventListener("message", onMessage);
+
+      const timer = setInterval(() => {
+        try {
+          if (popup.closed) {
+            clearInterval(timer);
+            window.removeEventListener("message", onMessage);
+            resolve(null);
+            return;
+          }
+          const params = new URL(popup.location.href).searchParams;
+          const code = params.get("code");
+          if (code) {
+            clearInterval(timer);
+            window.removeEventListener("message", onMessage);
+            popup.close();
+            resolve(code);
+          }
+        } catch {
+          // Cross-origin while on provider domain; ignore until it redirects back
+        }
+      }, 400);
+    });
+  }
+
+  const getFormFields = useCallback((): FieldDef[] => {
+    const commonFields: FieldDef[] = [
       {
         name: "displayName",
         label: "Connection Name",
@@ -160,6 +277,7 @@ export default function ConnectionSetupModal({
         placeholder: "Enter connection name",
       },
     ];
+
     if (isGithub) {
       return [
         ...commonFields,
@@ -179,32 +297,109 @@ export default function ConnectionSetupModal({
         },
       ];
     }
-    if (piece.auth?.props) {
-      const authFields = Object.entries(piece.auth.props).map(
-        ([key, prop]) => ({
+
+    // If OAuth2 → no manual secret field; only pre-auth props (e.g., Salesforce environment)
+    const isOAuth2 = piece.auth?.type === "OAUTH2";
+    const hasProps = Boolean(piece.auth && piece.auth.props && Object.keys(piece.auth.props!).length > 0);
+
+    // Map props to fields, supporting multiple prop types
+    const mapPropsToFields = (): FieldDef[] => {
+      const entries = Object.entries(piece.auth?.props || {});
+      return entries.map(([key, prop]) => {
+        const p = prop as {
+          displayName?: string;
+          required?: boolean;
+          type?: string;
+          defaultValue?: unknown;
+          options?: { options?: Array<{ label?: string; value?: string | number }> };
+        };
+        const kind = String(prop.type || "SHORT_TEXT");
+        if (kind === "STATIC_DROPDOWN") {
+          const optionsArr: Array<{ label: string; value: string }> = (p.options?.options || []).map((opt) => ({
+            label: String((opt?.label ?? opt?.value ?? "") as string | number),
+            value: String((opt?.value ?? opt?.label ?? "") as string | number),
+          }));
+          return {
+            name: key,
+            label: p.displayName || key,
+            type: "select",
+            required: Boolean(p.required),
+            options: optionsArr,
+            defaultValue: p.defaultValue,
+          } as FieldDef;
+        }
+        if (kind === "CHECKBOX") {
+          return {
+            name: key,
+            label: p.displayName || key,
+            type: "checkbox",
+            required: Boolean(p.required),
+            defaultValue: Boolean(p.defaultValue),
+          } as FieldDef;
+        }
+        if (kind === "NUMBER") {
+          return {
+            name: key,
+            label: p.displayName || key,
+            type: "number",
+            required: Boolean(p.required),
+            placeholder: `Enter ${String(p.displayName || key).toLowerCase()}`,
+            defaultValue: p.defaultValue,
+          } as FieldDef;
+        }
+        if (kind === "SECRET_TEXT") {
+          return {
+            name: key,
+            label: p.displayName || key,
+            type: "password",
+            required: Boolean(p.required),
+            placeholder: `Enter ${String(p.displayName || key).toLowerCase()}`,
+          } as FieldDef;
+        }
+        // Default to short text
+        return {
           name: key,
-          label: prop.displayName,
-          type: prop.type === "SHORT_TEXT" ? "text" : "password",
-          required: prop.required,
-          placeholder: `Enter ${prop.displayName.toLowerCase()}`,
-        })
-      );
-      return [...commonFields, ...authFields];
+          label: p.displayName || key,
+          type: "text",
+          required: Boolean(p.required),
+          placeholder: `Enter ${String(p.displayName || key).toLowerCase()}`,
+        } as FieldDef;
+      });
+    };
+
+    if (isOAuth2) {
+      if (hasProps) {
+        return [...commonFields, ...mapPropsToFields()];
+      }
+      return [...commonFields];
     }
-    return [
-      ...commonFields,
-      {
-        name: "apiKey",
-        label: "API Key",
-        type: "password",
-        required: true,
-        placeholder: "Enter your API key",
-      },
-    ];
-  };
+
+    // SECRET_TEXT without props: single token field using piece's display label
+    if (piece.auth?.type === "SECRET_TEXT" && !hasProps) {
+      return [
+        ...commonFields,
+        {
+          name: "token",
+          label: piece.auth.displayName || "API Key",
+          type: "password",
+          required: Boolean(piece.auth.required),
+          placeholder: `Enter ${(piece.auth.displayName || "API Key").toLowerCase()}`,
+        },
+      ];
+    }
+
+    // CUSTOM_AUTH with props
+    if (hasProps) {
+      return [...commonFields, ...mapPropsToFields()];
+    }
+
+    // Fallback: only connection name
+    return [...commonFields];
+  }, [isGithub, piece]);
 
   if (!isOpen) return null;
 
+  
   const formFields =
     mode === "edit"
       ? [
@@ -257,6 +452,37 @@ export default function ConnectionSetupModal({
           className="px-6 py-3 h-[83%] flex flex-col"
         >
           <div className="h-full overflow-y-auto space-y-4 pr-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
+            {mode !== "edit" && (
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-theme-primary">
+                  Scope
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => form.setValue("scope", "platform", { shouldDirty: true })}
+                    className={`rounded-xl px-3 py-2 text-sm transition-all ${
+                      selectedScope === "platform"
+                        ? "bg-theme-primary text-theme-inverse"
+                        : "border border-white/20 dark:border-white/10 bg-theme-input text-theme-primary hover:bg-theme-input-focus"
+                    }`}
+                  >
+                    Platform
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => form.setValue("scope", "project", { shouldDirty: true })}
+                    className={`rounded-xl px-3 py-2 text-sm transition-all ${
+                      selectedScope === "project"
+                        ? "bg-theme-primary text-theme-inverse"
+                        : "border border-white/20 dark:border-white/10 bg-theme-input text-theme-primary hover:bg-theme-input-focus"
+                    }`}
+                  >
+                    This project
+                  </button>
+                </div>
+              </div>
+            )}
             {mode !== "edit" && piece.auth?.description && (
               <div className="mb-4 p-4 bg-[#b3a1ff]/10 rounded-xl border border-[#b3a1ff]/30">
                 <h4 className="text-sm font-medium text-[#b3a1ff] mb-2">
@@ -267,8 +493,22 @@ export default function ConnectionSetupModal({
                 </div>
               </div>
             )}
-            
-            {formFields.map((field) => (
+
+            <div>
+              <button
+                type="button"
+                onClick={handleGoogleOAuth}
+                className="inline-flex items-center justify-center gap-2 w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-4 py-2.5 text-sm font-semibold text-theme-primary transition-all duration-200 hover:bg-theme-input-focus"
+              >
+                Continue with Google
+              </button>
+            </div>
+
+            {/* Hidden fields to store OAuth code and scope */}
+            <input type="hidden" {...form.register("code")} />
+            <input type="hidden" {...form.register("scope")} />
+
+            {(formFields as FieldDef[]).map((field: FieldDef) => (
               <div key={field.name}>
                 <label className="mb-1.5 block text-sm font-medium text-theme-primary">
                   {field.label}
@@ -276,19 +516,89 @@ export default function ConnectionSetupModal({
                     <span className="text-[#ef4a45] ml-1">*</span>
                   )}
                 </label>
-                <input
-                  {...form.register(field.name, {
-                    required: field.required
-                      ? `${field.label} is required`
-                      : false,
-                  })}
-                  type={field.type}
-                  placeholder={field.placeholder}
-                  className="block w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-sm text-theme-primary placeholder:text-theme-secondary outline-none transition-all duration-200 focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
-                />
-                {form.formState.errors[field.name] && (
+                {field.type === "select" ? (
+                  <div className="relative">
+                    {/* Hidden input binds to form */}
+                    <input
+                      type="hidden"
+                      {...form.register(field.name, {
+                        required:
+                          field.name === "displayName"
+                            ? `${field.label} is required`
+                            : !hasOAuthCode && Boolean(field.required)
+                            ? `${field.label} is required`
+                            : false,
+                      })}
+                      defaultValue={field.defaultValue as string | undefined}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setOpenSelect((prev) => (prev === field.name ? null : field.name))}
+                      className="w-full inline-flex items-center justify-between px-3 py-2.5 bg-theme-input border border-white/20 dark:border-white/10 rounded-2xl text-sm text-theme-primary hover:bg-theme-input-focus focus:ring-2 focus:ring-theme-primary/20"
+                    >
+                      <span className="truncate text-left">
+                        {(() => {
+                          const current = String((form.getValues(field.name) as string) || (field.defaultValue as string) || "");
+                          const opt = (field.options || []).find((o) => o.value === current);
+                          return opt ? opt.label : current || "Select option";
+                        })()}
+                      </span>
+                      <ChevronDown size={16} className="text-theme-secondary ml-2" />
+                    </button>
+                    {openSelect === field.name && (
+                      <>
+                        <div className="absolute inset-0" onClick={() => setOpenSelect(null)} />
+                        <div className="absolute z-[99999] mt-2 w-full overflow-hidden bg-theme-input backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl shadow-xl">
+                          <div className="py-1 max-h-64 overflow-y-auto pr-1 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-theme-secondary/30 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-theme-secondary/50">
+                            {(field.options || []).map((opt) => (
+                              <button
+                                key={opt.value}
+                                type="button"
+                                onClick={() => {
+                                  form.setValue(field.name, opt.value, { shouldValidate: true, shouldDirty: true });
+                                  setOpenSelect(null);
+                                }}
+                                className={`w-full px-3 py-2 text-left text-sm transition-all duration-200 ${
+                                  String(form.getValues(field.name) || "") === opt.value
+                                    ? "bg-[#b3a1ff] text-[#222222]"
+                                    : "text-theme-primary hover:bg-theme-input-focus"
+                                }`}
+                              >
+                                {opt.label}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    )}
+                  </div>
+                ) : field.type === "checkbox" ? (
+                  <input
+                    type="checkbox"
+                    {...form.register(field.name)}
+                    defaultChecked={Boolean(field.defaultValue)}
+                    className="rounded border-white/20 dark:border-white/10 bg-theme-input text-theme-primary focus:ring-[#b3a1ff]"
+                  />
+                ) : (
+                  <input
+                    {...form.register(field.name, {
+                      required:
+                        field.name === "displayName"
+                          ? `${field.label} is required`
+                          : !hasOAuthCode && Boolean(field.required)
+                          ? `${field.label} is required`
+                          : false,
+                      valueAsNumber: field.type === "number",
+                    })}
+                    type={field.type}
+                    placeholder={field.placeholder || ""}
+                    defaultValue={field.defaultValue as string | number | undefined}
+                    className="block w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2.5 text-sm text-theme-primary placeholder:text-theme-secondary outline-none transition-all duration-200 focus:border-[#b3a1ff] focus:ring-4 focus:ring-[#b3a1ff]/10"
+                  />
+                )}
+                {(form.formState.errors as Record<string, { message?: string }>)[field.name] && (
                   <p className="mt-1 text-sm text-[#ef4a45]">
-                    {form.formState.errors[field.name]?.message}
+                    {String((form.formState.errors as Record<string, { message?: string }>)[field.name]?.message || "")}
                   </p>
                 )}
               </div>
@@ -306,7 +616,7 @@ export default function ConnectionSetupModal({
               type="submit"
               disabled={Boolean(
                 (mode === "edit" ? isUpdating : isCreating) ||
-                  !form.formState.isValid ||
+                  (!hasOAuthCode && !form.formState.isValid) ||
                   (mode === "edit" &&
                     existingConnection &&
                     form.getValues("displayName").trim() ===

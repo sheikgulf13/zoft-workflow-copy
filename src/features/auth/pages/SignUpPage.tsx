@@ -49,6 +49,17 @@ export default function SignUpPage() {
             </div>
             <div className="bg-theme-form backdrop-blur-md rounded-3xl p-6 shadow-lg">
               <SignUpForm />
+              <div className="mt-4">
+                <button
+                  type="button"
+                  className="w-full inline-flex items-center justify-center gap-2 bg-white text-[#222222] rounded-2xl py-2.5 px-6 font-medium shadow-sm hover:bg-white/90"
+                >
+                  <span className="w-5 h-5 rounded-full" />
+                  <span>
+                    Continue with <span className="font-semibold">Google</span>
+                  </span>
+                </button>
+              </div>
             </div>
             <div className="mt-4 text-center text-sm text-theme-secondary">
               Already have an account? {""}
