@@ -340,6 +340,38 @@ export async function getSampleData(
   return resp.data as unknown;
 }
 
+// Resolve a concrete piece version (never returns 'latest').
+export async function resolvePieceVersion(
+  pieceName: string,
+  providedVersion?: string
+): Promise<string> {
+  const isConcrete = (v?: string) =>
+    typeof v === "string" && v.length > 0 && !/latest/i.test(v);
+  if (isConcrete(providedVersion)) return providedVersion as string;
+  const normalizedPieceName = pieceName.startsWith("@activepieces/piece-")
+    ? pieceName
+    : `@activepieces/piece-${pieceName}`;
+  try {
+    const encoded = normalizedPieceName.replace(/\//g, "%2F");
+    const resp = await http.get(`/pods/${encoded}`);
+    const root = resp.data as unknown;
+    const meta = (root && typeof root === "object" && (root as Record<string, unknown>)["data"])
+      ? ((root as Record<string, unknown>)["data"] as Record<string, unknown>)
+      : ((root as Record<string, unknown>) || {});
+    const candidate =
+      (meta["version"] as string | undefined) ||
+      (meta["latestVersion"] as string | undefined) ||
+      (meta["release"] as string | undefined) ||
+      undefined;
+    if (isConcrete(candidate)) return candidate as string;
+  } catch {
+    // noop: fall through to error below
+  }
+  // As a last resort, if providedVersion is set and not 'latest', return it; otherwise throw
+  if (isConcrete(providedVersion)) return providedVersion as string;
+  throw new Error(`Could not resolve piece version for ${normalizedPieceName}`);
+}
+
 // Operations
 export async function postFlowOperation<TRequest>(
   flowId: string,
@@ -350,7 +382,7 @@ export async function postFlowOperation<TRequest>(
   return resp.data as unknown;
 }
 
-export async function updateWebhookTrigger(flowId: string): Promise<void> {
+export async function updateWebhookTrigger(flowId: string): Promise<unknown> {
   const body: FlowOperationEnvelope<UpdateTriggerPayload> = {
     type: "UPDATE_TRIGGER",
     request: {
@@ -369,12 +401,13 @@ export async function updateWebhookTrigger(flowId: string): Promise<void> {
   } catch {
     /* noop */
   }
-  await postFlowOperation(flowId, body);
+  const resp = await postFlowOperation(flowId, body);
   try {
     console.debug("[updateWebhookTrigger] success for flowId", flowId);
   } catch {
     /* noop */
   }
+  return resp;
 }
 
 type UpdatePieceTriggerOptions = {
@@ -390,7 +423,11 @@ type UpdatePieceTriggerOptions = {
 export async function updatePieceTrigger(
   flowId: string,
   opts: UpdatePieceTriggerOptions
-): Promise<void> {
+): Promise<unknown> {
+  const resolvedVersion = await resolvePieceVersion(
+    opts.pieceName,
+    opts.pieceVersion
+  );
   const body: FlowOperationEnvelope<UpdateTriggerPayload> = {
     type: "UPDATE_TRIGGER",
     request: {
@@ -401,8 +438,7 @@ export async function updatePieceTrigger(
       settings: {
         auth: opts.auth,
         pieceName: opts.pieceName,
-        //pieceVersion: opts.pieceVersion ?? "latest",
-        pieceVersion: "0.0.7",
+        pieceVersion: resolvedVersion,
         triggerName: opts.triggerName,
         input: opts.input ?? {},
       } as unknown as Record<string, unknown>,
@@ -413,12 +449,13 @@ export async function updatePieceTrigger(
   } catch {
     /* noop */
   }
-  await postFlowOperation(flowId, body);
+  const resp = await postFlowOperation(flowId, body);
   try {
     console.debug("[updatePieceTrigger] success for flowId", flowId);
   } catch {
     /* noop */
   }
+  return resp;
 }
 
 export async function validateWorkflow(
@@ -526,9 +563,31 @@ export async function updateAction(
   flowId: string,
   payload: UpdateActionPayload
 ): Promise<void> {
+  // Ensure pieceVersion is present for PIECE actions
+  let request: UpdateActionPayload = payload;
+  if (payload.type === "PIECE") {
+    const settings = ((payload.settings as unknown) || {}) as Record<string, unknown>;
+    const rawPieceName = String(settings["pieceName"] ?? "");
+    const pieceName = rawPieceName
+      ? (rawPieceName.startsWith("@activepieces/piece-") ? rawPieceName : `@activepieces/piece-${rawPieceName}`)
+      : "";
+    let pieceVersion = (settings["pieceVersion"] as string | undefined) || undefined;
+    if (pieceName && (!pieceVersion || /latest/i.test(pieceVersion))) {
+      try {
+        pieceVersion = await resolvePieceVersion(pieceName, pieceVersion);
+      } catch {
+        // best-effort; keep existing or empty string below
+      }
+    }
+    // Always include the field so backend consistently receives it
+    request = {
+      ...payload,
+      settings: { ...settings, pieceVersion: pieceVersion ?? "" } as unknown as Record<string, unknown>,
+    };
+  }
   const body: FlowOperationEnvelope<UpdateActionPayload> = {
     type: "UPDATE_ACTION",
-    request: payload,
+    request,
   };
   try {
     console.debug("[updateAction] body", body);

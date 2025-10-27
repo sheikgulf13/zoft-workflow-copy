@@ -19,6 +19,7 @@ const AppLayout = lazy(
 );
 const HomePage = lazy(() => import("./features/home/pages/HomePage"));
 const FlowsPage = lazy(() => import("./features/flows/pages/FlowsPage"));
+const TemplatesPage = lazy(() => import("./features/home/pages/TemplatesPage"));
 const FlowEditorPage = lazy(
   () => import("./features/flows/pages/FlowEditorPage")
 );
@@ -87,10 +88,7 @@ function App() {
               path="mcp"
               element={<div className="container-page py-6">MCP</div>}
             />
-            <Route
-              path="todos"
-              element={<div className="container-page py-6">Todos</div>}
-            />
+            <Route path="templates" element={<TemplatesPage />} />
             <Route path="enter-platform-admin" element={<PlatformAdminLayout />}>
               <Route index element={<InvitationsPage />} />
               <Route path="invitations" element={<InvitationsPage />} />

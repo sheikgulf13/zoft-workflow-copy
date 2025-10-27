@@ -7,6 +7,7 @@ interface ThemeToggleProps {
   className?: string;
   dropdownPosition?: "top" | "bottom";
   widthFull?: boolean;
+  showLabel?: boolean;
 }
 
 export function ThemeToggle({
@@ -14,6 +15,7 @@ export function ThemeToggle({
   className = "",
   dropdownPosition = "bottom",
   widthFull = false,
+  showLabel = true,
 }: ThemeToggleProps) {
   const { theme, setTheme, toggleTheme } = useThemeStore();
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
@@ -30,10 +32,10 @@ export function ThemeToggle({
     return (
       <button
         onClick={toggleTheme}
-        className={`p-2.5 rounded-2xl bg-theme-input border border-white/20 dark:border-white/10 text-theme-primary hover:bg-theme-input-focus hover:scale-105 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-theme-primary/20 ${className}`}
+        className={`p-[0.6vw] rounded-[0.8vw] bg-theme-input border border-white/20 dark:border-white/10 text-theme-primary hover:bg-theme-input-focus hover:scale-105 transition-all duration-200 focus:outline-none focus:ring-[0.15vw] focus:ring-theme-primary/20 ${className}`}
         title={`Current theme: ${currentTheme?.label}`}
       >
-        {currentTheme?.icon}
+        <span className="[&>*]:h-[1vw] [&>*]:w-[1vw]">{currentTheme?.icon}</span>
       </button>
     );
   }
@@ -42,13 +44,20 @@ export function ThemeToggle({
     <div className={`relative ${className}`}>
       <button
         onClick={() => setIsDropdownOpen(!isDropdownOpen)}
-        className={`p-2.5 rounded-2xl flex items-center justify-center bg-theme-form border border-white/20 dark:border-white/10 text-theme-primary hover:bg-theme-input-focus transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-theme-primary/20  gap-2 ${
+        className={`p-[0.6vw] rounded-[0.8vw] flex items-center justify-center bg-theme-form border border-white/20 dark:border-white/10 text-theme-primary hover:bg-theme-input-focus transition-all duration-200 focus:outline-none focus:ring-[0.15vw] focus:ring-theme-primary/20  gap-[0.6vw] ${
           widthFull ? "w-full" : ""
         }`}
         title="Theme options"
       >
-        {currentTheme?.icon}
-        <span className="text-sm font-medium">{currentTheme?.label}</span>
+        <span className="[&>*]:h-[1vw] [&>*]:w-[1vw]">{currentTheme?.icon}</span>
+        <span
+          aria-hidden={!showLabel}
+          className={`text-[0.85vw] font-medium overflow-hidden transition-all duration-300 ${
+            showLabel ? "opacity-100 max-w-[8vw] ml-[0.5vw]" : "opacity-0 max-w-0 ml-0"
+          }`}
+        >
+          {currentTheme?.label}
+        </span>
       </button>
 
       {isDropdownOpen && (
@@ -63,8 +72,8 @@ export function ThemeToggle({
           <div
             className={`absolute w-48 overflow-hidden bg-theme-input backdrop-blur-md border border-white/20 dark:border-white/10 rounded-2xl shadow-xl z-20 ${
               dropdownPosition === "top"
-                ? "bottom-full mb-2 left-[50%] translate-x-[-50%]"
-                : "top-full mt-2 right-0"
+                ? "bottom-full mb-[0.5vw] left-[50%] translate-x-[-50%]"
+                : "top-full mt-[0.5vw] right-0"
             }`}
           >
             <div className="py-0">
@@ -75,14 +84,14 @@ export function ThemeToggle({
                     setTheme(themeOption.value);
                     setIsDropdownOpen(false);
                   }}
-                  className={`w-full px-4 py-3 text-left flex items-center gap-3 text-sm transition-all duration-200 ${
+                  className={`w-full px-[0.9vw] py-[0.6vw] text-left flex items-center gap-[0.6vw] text-[0.9vw] transition-all duration-200 ${
                     theme === themeOption.value
                       ? "bg-[#b3a1ff] text-[#222222]"
                       : "text-theme-primary hover:bg-theme-input"
                   }`}
                 >
-                  {themeOption.icon}
-                  {themeOption.label}
+                  <span className="[&>*]:h-[1vw] [&>*]:w-[1vw]">{themeOption.icon}</span>
+                  <span className="truncate">{themeOption.label}</span>
                 </button>
               ))}
             </div>

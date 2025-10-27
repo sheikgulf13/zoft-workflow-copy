@@ -86,14 +86,30 @@
 
 /* Node Selection */
 .react-flow__node.selected {
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: none; /* remove rectangular shadow when selected */
 }
 
 .react-flow__node.selected .react-flow__node-default,
 .react-flow__node.selected .react-flow__node-input,
 .react-flow__node.selected .react-flow__node-output {
   border-color: rgba(179, 161, 255, 0.5);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+  box-shadow: none; /* ensure no default inner shadow either */
+}
+
+/* Minimal focus ring for our custom rounded nodes */
+.react-flow__node.selected .zw-node {
+  outline: 2px solid rgba(179, 161, 255, 0.6); /* subtle theme-primary ring */
+  outline-offset: -2px; /* keep within rounded border */
+}
+
+/* When node has validation issues, prefer red ring */
+.react-flow__node .zw-node[data-has-validation="1"] {
+  border-color: #ef4a45 !important;
+  background-color: rgba(239, 74, 69, 0.06); /* very light red tint */
+}
+.react-flow__node.selected .zw-node[data-has-validation="1"] {
+  outline: 2px solid rgba(239, 74, 69, 0.8);
+  outline-offset: -2px;
 }
 
 /* Edge styles */

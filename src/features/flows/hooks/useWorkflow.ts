@@ -659,13 +659,23 @@ export function useWorkflow() {
             body_text: "Your workflow has been executed successfully.",
           } as Record<string, unknown>;
         }
+        // Resolve concrete piece version (never send 'latest')
+        let resolvedVersion = piece.version || "";
+        try {
+          const { resolvePieceVersion } = await import("../services/flowService");
+          resolvedVersion = await resolvePieceVersion(fullPieceName, piece.version);
+        } catch {
+          resolvedVersion = piece.version || ""; // best effort; backend may reject if empty
+        }
+
         const actionPayload: AddActionRequest["action"] = {
           type: "PIECE",
           displayName: action.displayName,
           settings: {
             pieceName: fullPieceName,
-            pieceVersion: piece.version || "latest",
+            pieceVersion: resolvedVersion,
             actionName,
+            logoUrl: piece.logoUrl,
             input,
           } as unknown as AddActionRequest["action"]["settings"],
         };
@@ -681,13 +691,97 @@ export function useWorkflow() {
         // Update only the selected node's name from response, and extract action props
         try {
           const root = response as Record<string, unknown>;
-          const data = (root?.["data"] as Record<string, unknown>) || {};
-          const versions = (data?.["versions"] as Array<Record<string, unknown>>) || [];
-          const first = versions[0] || {};
-          const flowData = (first?.["flowData"] as Record<string, unknown>) || {};
-          const trigger = (flowData?.["trigger"] as Record<string, unknown>) || {};
-          const nextAction = (trigger?.["nextAction"] as Record<string, unknown>) || {};
-          const backendName = (nextAction?.["name"] as string) || undefined;
+          const findBackendActionName = (
+            rootObj: unknown,
+            expectedPieceName: string,
+            expectedActionName: string,
+            expectedDisplayName: string
+          ): string | undefined => {
+            const asObj = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : undefined);
+            const candidates: Array<Record<string, unknown>> = [];
+            const push = (v: unknown) => {
+              const o = asObj(v);
+              if (o) candidates.push(o);
+            };
+            const r = asObj(rootObj) || {};
+            push(r);
+            push(r["data"]);
+            push(r["flow"]);
+            const versionsFrom = (obj: Record<string, unknown>): Array<Record<string, unknown>> => {
+              const v = obj["versions"];
+              return Array.isArray(v) ? (v as Array<Record<string, unknown>>) : [];
+            };
+            const getTriggerFromVersion = (ver: Record<string, unknown>): Record<string, unknown> | undefined => {
+              const fd = asObj(ver["flowData"]) || {};
+              const inner = asObj(fd["flowData"]) || fd;
+              return asObj(inner["trigger"]);
+            };
+            const matchPiece = (node: Record<string, unknown>): boolean => {
+              const type = String(node["type"] ?? "").toUpperCase();
+              if (type !== "PIECE") return false;
+              const settings = asObj(node["settings"]) || {};
+              const pieceName = String(settings?.["pieceName"] ?? "");
+              const actionName = String(settings?.["actionName"] ?? "");
+              const displayName = String(node["displayName"] ?? "");
+              if (pieceName !== expectedPieceName) return false;
+              if (actionName !== expectedActionName) return false;
+              // displayName sometimes differs slightly; accept contains either way
+              if (
+                displayName && expectedDisplayName &&
+                !(displayName === expectedDisplayName ||
+                  displayName.includes(expectedDisplayName) ||
+                  expectedDisplayName.includes(displayName))
+              ) {
+                // Still accept if piece/action matched; display name mismatch is non-fatal
+                return true;
+              }
+              return true;
+            };
+            const enqueueNext = (node: Record<string, unknown>, q: Array<Record<string, unknown>>) => {
+              const next = node["nextAction"];
+              if (Array.isArray(next)) {
+                next.forEach((n) => {
+                  const o = asObj(n);
+                  if (o) q.push(o);
+                });
+              } else {
+                const o = asObj(next);
+                if (o) q.push(o);
+              }
+            };
+            for (const c of candidates) {
+              const versions = versionsFrom(c);
+              for (const v of versions) {
+                const trigger = getTriggerFromVersion(v);
+                if (!trigger) continue;
+                const q: Array<Record<string, unknown>> = [trigger];
+                while (q.length > 0) {
+                  const cur = q.shift()!;
+                  if (matchPiece(cur)) {
+                    const nm = cur["name"] as string | undefined;
+                    if (nm) return nm;
+                  }
+                  enqueueNext(cur, q);
+                }
+              }
+            }
+            // Fallback: direct trigger.nextAction when present
+            try {
+              const data = (r?.["data"] as Record<string, unknown>) || {};
+              const versions = (data?.["versions"] as Array<Record<string, unknown>>) || [];
+              const first = versions[0] || {};
+              const flowData = (first?.["flowData"] as Record<string, unknown>) || {};
+              const trigger = (flowData?.["trigger"] as Record<string, unknown>) || {};
+              const nextAction = (trigger?.["nextAction"] as Record<string, unknown>) || {};
+              const nm = (nextAction?.["name"] as string) || undefined;
+              if (nm) return nm;
+            } catch {
+              /* noop */
+            }
+            return undefined;
+          };
+
+          const backendName = findBackendActionName(root, fullPieceName, actionName, action.displayName);
           if (backendName) {
             setNodes((nds) =>
               nds.map((node) =>
@@ -731,9 +825,11 @@ export function useWorkflow() {
           if (!propsObj) {
             try {
               const normalizedPieceName = piece.name.startsWith("@activepieces/piece-") ? piece.name : `@activepieces/piece-${piece.name}`;
-              const resp = await fetch(`https://cloud.activepieces.com/api/v1/pieces/${normalizedPieceName}`);
-              if (resp.ok) {
-                const pieceSchema = (await resp.json()) as Record<string, unknown>;
+              const encoded = normalizedPieceName.replace(/\//g, "%2F");
+              const resp = await (await import("../../../shared/api")).http.get(`/pods/${encoded}`);
+              if (resp && resp.data) {
+                const root = resp.data as Record<string, unknown>;
+                const pieceSchema = (root?.["data"] as Record<string, unknown> | undefined) || root;
                 const actionsSchema = (pieceSchema["actions"] as Record<string, unknown>) || {};
                 const actionSchema = (actionsSchema[targetActionName] as Record<string, unknown>) || {};
                 const fallbackProps = (actionSchema["props"] as Record<string, unknown>) || undefined;
@@ -2018,7 +2114,8 @@ export function useWorkflow() {
       // Helpers to map backend node to canvas node (with details)
       const createNodeFromBackend = (
         backend: Record<string, unknown>,
-        pos: { x: number; y: number }
+        pos: { x: number; y: number },
+        isRoot: boolean
       ): Node<WorkflowNodeData> => {
         const typeRaw = String(backend["type"] ?? "action").toUpperCase();
         const normalizeType = (t: string): NodeType => {
@@ -2037,7 +2134,8 @@ export function useWorkflow() {
               return "action";
           }
         };
-        const nodeType: NodeType = normalizeType(typeRaw);
+        // Root node: if backend type is PIECE, this is a piece trigger
+        const nodeType: NodeType = (isRoot && typeRaw === "PIECE") ? "trigger" : normalizeType(typeRaw);
         const displayName = String(
           backend["displayName"] ??
             backend["name"] ??
@@ -2074,7 +2172,24 @@ export function useWorkflow() {
           nodeData.config = settings;
         } else if (nodeType === "trigger") {
           nodeData.config = settings;
+          // If this is a piece trigger (root PIECE), attach pieceName/triggerName
+          try {
+            const pieceName = settings["pieceName"] as string | undefined;
+            const triggerName = settings["triggerName"] as string | undefined;
+            if (pieceName) nodeData.pieceName = pieceName;
+            if (triggerName) nodeData.triggerName = triggerName;
+          } catch {
+            /* noop */
+          }
           if (!nodeData.name) nodeData.name = "trigger";
+        }
+
+        // Populate logoUrl from backend settings if provided
+        try {
+          const logo = settings && typeof settings["logoUrl"] === "string" ? (settings["logoUrl"] as string) : undefined;
+          if (logo) nodeData.logoUrl = logo;
+        } catch {
+          /* noop */
         }
 
         return {
@@ -2094,7 +2209,7 @@ export function useWorkflow() {
         depth: number;
         branchIndex?: number;
       }> = [];
-      const root = createNodeFromBackend(triggerNode, { x: 150, y: 200 });
+      const root = createNodeFromBackend(triggerNode, { x: 150, y: 200 }, true);
       nodesAcc.push(root);
       queue.push({ backend: triggerNode, parentId: undefined, depth: 0 });
 
@@ -2112,7 +2227,7 @@ export function useWorkflow() {
         children.forEach((child, index) => {
           const x = 150 + (depth + 1) * xGap;
           const y = 200 + index * yGap;
-          const childNode = createNodeFromBackend(child, { x, y });
+          const childNode = createNodeFromBackend(child, { x, y }, false);
           nodesAcc.push(childNode);
           if (parentId) {
             edgesAcc.push({

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import ReactFlow, {
   Background,
@@ -22,6 +22,7 @@ const StepSettingsLazy = React.lazy(
   () => import("../components/StepSettings")
 );
 import DataSelectorModal from "../components/DataSelectorModal";
+import type { Connection } from "../../../types/connection";
 const ConnectionSetupModalLazy = React.lazy(
   () => import("../../connections/components/ConnectionSetupModal")
 );
@@ -119,12 +120,44 @@ export default function FlowEditorPage() {
   const [isDeletingNode, setIsDeletingNode] = useState(false);
   const memoNodeTypes = useMemo(() => nodeTypes, []);
   const memoEdgeTypes = useMemo(() => edgeTypes, []);
+  const [miniMapOffset, setMiniMapOffset] = useState(0);
+  const [bgGapPx, setBgGapPx] = useState(20);
+  const [bgSizePx, setBgSizePx] = useState(1);
+  const [controlsScale, setControlsScale] = useState(1);
 
+  useEffect(() => {
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent<{ minimized?: boolean }>;
+        const minimized = Boolean(ce?.detail?.minimized);
+        setMiniMapOffset(minimized ? 70 : 0); // move up ~40px when minimized
+      } catch { /* noop */ }
+    };
+    window.addEventListener("zw:data-selector:minimized", handler as EventListener);
+    return () => window.removeEventListener("zw:data-selector:minimized", handler as EventListener);
+  }, []);
+  // Ensure minimap resets when modal is closed (even if no event fired)
+  useEffect(() => {
+    if (!isDataSelectorOpen) setMiniMapOffset(0);
+  }, [isDataSelectorOpen]);
+  // Update sizes based on vw for canvas decorations
+  useEffect(() => {
+    const update = () => {
+      const vw = Math.max(320, window.innerWidth || 1024);
+      setBgGapPx(Math.max(6, Math.round(vw * 0.008)));
+      setBgSizePx(Math.max(1, Math.round(vw * 0.0004)));
+      const s = Math.min(1.2, Math.max(0.85, vw / 1600));
+      setControlsScale(s);
+    };
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
   useEffect(() => {
     // Initialize toggle from stored flow status (existing or newly created)
     try {
       const stored = sessionStorage.getItem("zw_current_flow");
-      if (stored) {
+      if (stored) { 
         const parsed = JSON.parse(stored) as { status?: string };
         if (typeof parsed?.status === "string")
           setIsFlowEnabled(parsed.status === "ENABLED");
@@ -156,6 +189,26 @@ export default function FlowEditorPage() {
       window.removeEventListener("popstate", handlePopState);
     };
   }, [isDirty]);
+
+  // Listen for validation updates coming from StepSettings and update node badges
+  const validationSigByNodeRef = useRef<Record<string, string>>({});
+  useEffect(() => {
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent<{ stepId?: string; missing?: string[] }>;
+        const stepId = ce?.detail?.stepId;
+        const missing = Array.isArray(ce?.detail?.missing) ? ce.detail.missing : [];
+        if (!stepId) return;
+        const incomingSig = missing.slice().sort().join("|");
+        const prevSig = validationSigByNodeRef.current[stepId];
+        if (incomingSig === prevSig) return; // no-op to avoid redundant updates
+        validationSigByNodeRef.current[stepId] = incomingSig;
+        updateNodeData(stepId, { validationErrors: missing } as unknown as Record<string, unknown>);
+      } catch { /* noop */ }
+    };
+    window.addEventListener("zw:update-node-validation", handler as EventListener);
+    return () => window.removeEventListener("zw:update-node-validation", handler as EventListener);
+  }, [updateNodeData]);
 
   // Close Data Selector when Step Settings closes
   useEffect(() => {
@@ -252,6 +305,8 @@ export default function FlowEditorPage() {
           setIsStepSettingsOpen(true);
           return;
         }
+        // Ensure Step Settings is closed to avoid any full-screen overlays
+        setIsStepSettingsOpen(false);
         setSelectedNodeId(node.id);
         const rect = (
           event.currentTarget as HTMLElement
@@ -271,6 +326,9 @@ export default function FlowEditorPage() {
 
   const handleEdgeClick = useCallback(
     (_event: React.MouseEvent, edge: { source: string; target: string }) => {
+      // Close Step Settings when adding an empty node between edges
+      setIsStepSettingsOpen(false);
+      setSelectedNodeId(null);
       addNodeBetween(edge.source, edge.target);
     },
     [addNodeBetween]
@@ -401,7 +459,7 @@ export default function FlowEditorPage() {
   }, [moveAfterTimeout, moveBeforeTimeout]);
 
   const handlePieceSelect = useCallback(
-    (piece: FlowPiece, actionOrTrigger: FlowPieceAction | FlowPieceTrigger, selectType?: "action" | "trigger") => {
+    async (piece: FlowPiece, actionOrTrigger: FlowPieceAction | FlowPieceTrigger, selectType?: "action" | "trigger") => {
       if (selectedNodeId) {
         const selectedNode = nodes.find((n) => n.id === selectedNodeId);
         const hasIncoming = edges.some((e) => e.target === selectedNodeId);
@@ -415,7 +473,41 @@ export default function FlowEditorPage() {
             const parsed = stored ? (JSON.parse(stored) as { id?: string }) : undefined;
             const flowId = parsed?.id || sessionStorage.getItem("zw_last_created_flow_id") || "";
             if (flowId) {
-              updateWebhookTrigger(String(flowId)).catch(() => {});
+              const resp = await updateWebhookTrigger(String(flowId)).catch(() => undefined);
+              // Extract backend trigger step name and update node data
+              const extractTriggerName = (root: unknown): string | undefined => {
+                const tryObj = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : undefined);
+                const r = tryObj(root) || {};
+                const candidates: Array<Record<string, unknown>> = [];
+                const pushIfObj = (v: unknown) => {
+                  const o = tryObj(v);
+                  if (o) candidates.push(o);
+                };
+                pushIfObj(r);
+                pushIfObj(r["data"]);
+                pushIfObj(r["flow"]);
+                const fromCandidates = (): string | undefined => {
+                  for (const c of candidates) {
+                    const versions = c["versions"] as unknown;
+                    if (Array.isArray(versions) && versions.length > 0) {
+                      const v0 = tryObj(versions[0]);
+                      const flowData = tryObj(v0?.["flowData"]) || {};
+                      const inner = tryObj(flowData["flowData"]) || flowData;
+                      const trigger = tryObj(inner?.["trigger"]);
+                      const name = (trigger?.["name"] as string) || undefined;
+                      if (name) return name;
+                    }
+                  }
+                  return undefined;
+                };
+                const nameFromVersions = fromCandidates();
+                if (nameFromVersions) return nameFromVersions;
+                // fallback: direct trigger on root
+                const directTrigger = tryObj(r["trigger"]) || tryObj((r["data"] as Record<string, unknown> | undefined)?.["trigger"]);
+                return (directTrigger?.["name"] as string) || undefined;
+              };
+              const backendName = extractTriggerName(resp);
+              if (backendName) updateNodeData(selectedNodeId, { name: backendName } as unknown as { [key: string]: unknown });
             }
           } catch {
             /* noop */
@@ -428,15 +520,46 @@ export default function FlowEditorPage() {
             const flowId = parsed?.id || sessionStorage.getItem("zw_last_created_flow_id") || "";
             if (flowId) {
               const fullPieceName = piece.name.startsWith("@activepieces/piece-") ? piece.name : `@activepieces/piece-${piece.name}`;
-              import("../services/flowService").then(({ updatePieceTrigger }) => {
-                updatePieceTrigger(String(flowId), {
+              try {
+                const { updatePieceTrigger, resolvePieceVersion } = await import("../services/flowService");
+                const resolvedVersion = await resolvePieceVersion(fullPieceName, piece.version);
+                const resp = await updatePieceTrigger(String(flowId), {
                   name: "trigger",
-                  displayName: "Piece Trigger",
+                  displayName: (actionOrTrigger as FlowPieceTrigger).displayName || "Piece Trigger",
                   pieceName: fullPieceName,
-                  pieceVersion: piece.version || "latest",
+                  pieceVersion: resolvedVersion,
                   triggerName: (actionOrTrigger as FlowPieceTrigger).name,
-                }).catch(() => {});
-              });
+                }).catch(() => undefined);
+                const extractTriggerName = (root: unknown): string | undefined => {
+                  const tryObj = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : undefined);
+                  const r = tryObj(root) || {};
+                  const candidates: Array<Record<string, unknown>> = [];
+                  const pushIfObj = (v: unknown) => {
+                    const o = tryObj(v);
+                    if (o) candidates.push(o);
+                  };
+                  pushIfObj(r);
+                  pushIfObj(r["data"]);
+                  pushIfObj(r["flow"]);
+                  for (const c of candidates) {
+                    const versions = c["versions"] as unknown;
+                    if (Array.isArray(versions) && versions.length > 0) {
+                      const v0 = tryObj(versions[0]);
+                      const flowData = tryObj(v0?.["flowData"]) || {};
+                      const inner = tryObj(flowData["flowData"]) || flowData;
+                      const trigger = tryObj(inner?.["trigger"]);
+                      const name = (trigger?.["name"] as string) || undefined;
+                      if (name) return name;
+                    }
+                  }
+                  const directTrigger = tryObj(r["trigger"]) || tryObj((r["data"] as Record<string, unknown> | undefined)?.["trigger"]);
+                  return (directTrigger?.["name"] as string) || undefined;
+                };
+                const backendName = extractTriggerName(resp);
+                if (backendName) updateNodeData(selectedNodeId, { name: backendName } as unknown as { [key: string]: unknown });
+              } catch {
+                /* noop */
+              }
             }
           } catch {
             /* noop */
@@ -508,6 +631,89 @@ export default function FlowEditorPage() {
       return () => clearTimeout(timer);
     }
   }, [splitWidth, reactFlowInstance]);
+  // Compute validation for all nodes; derive values from config.input and treat auth as connection
+  useEffect(() => {
+    try {
+      nodes.forEach((n) => {
+        try {
+          const nodeType = n.data?.type as string | undefined;
+          const isAction = nodeType === "action";
+          const isPieceTrigger = nodeType === "trigger" && Boolean(n.data?.pieceName);
+          const isPiece = isAction || isPieceTrigger;
+          if (!isPiece) return;
+          const cfg = (n.data.config ?? {}) as Record<string, unknown>;
+          const inputCfg = ((cfg["input"] as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
+          const missing: string[] = [];
+          // Gather required props from node meta if present
+          const optionProps: string[] = (n.data.optionProps as string[] | undefined) || [];
+          const requiredByName: Record<string, boolean> = (n.data.optionPropsRequiredByName as Record<string, boolean> | undefined) || {};
+          optionProps.forEach((p) => {
+            if (requiredByName[p]) {
+              const v = (inputCfg as Record<string, unknown>)[p];
+              if (v === undefined || v === null || String(v) === "") missing.push(p);
+            }
+          });
+          // Always consider connectionId for piece nodes
+          const connection = (cfg as Record<string, unknown>)?.["connectionId"] as unknown;
+          const auth = (cfg as Record<string, unknown>)?.["auth"] as unknown;
+          if ((connection === undefined || connection === null || String(connection) === "") && (auth === undefined || auth === null || String(auth) === "")) missing.push("connectionId");
+          const incomingSig = missing.slice().sort().join("|");
+          const currentErrors = n.data.validationErrors as string[] | undefined;
+          const prevSig = Array.isArray(currentErrors) ? currentErrors.slice().sort().join("|") : undefined;
+          if (incomingSig !== prevSig) {
+            updateNodeData(n.id, { validationErrors: missing } as unknown as Record<string, unknown>);
+          }
+        } catch {
+          /* ignore per-node */
+        }
+      });
+    } catch {
+      /* noop */
+    }
+  }, [nodes, updateNodeData]);
+
+  // Receive prop meta broadcast from StepSettings so node-level validation includes non-connection required fields
+  useEffect(() => {
+    const globalWindow = window as unknown as { __zw_props_meta_sig_ref__?: React.MutableRefObject<Record<string, string>> };
+    const propsMetaSigByNodeRef: React.MutableRefObject<Record<string, string>> =
+      globalWindow.__zw_props_meta_sig_ref__ || { current: {} };
+    globalWindow.__zw_props_meta_sig_ref__ = propsMetaSigByNodeRef;
+    const handler = (e: Event) => {
+      try {
+        const ce = e as CustomEvent<{
+          stepId?: string;
+          optionProps?: string[];
+          optionPropsRequiredByName?: Record<string, boolean>;
+          optionPropTypesByName?: Record<string, string>;
+          optionPropRefreshersByName?: Record<string, string[]>;
+        }>;
+        const id = ce?.detail?.stepId;
+        if (!id) return;
+        const props = Array.isArray(ce.detail.optionProps) ? ce.detail.optionProps.slice().sort().join("|") : "";
+        const req = ce.detail.optionPropsRequiredByName || {};
+        const reqKeys = Object.keys(req).sort();
+        const reqSig = reqKeys.map((k) => `${k}:${req[k] ? 1 : 0}`).join(",");
+        const types = ce.detail.optionPropTypesByName || {};
+        const typesKeys = Object.keys(types).sort();
+        const typesSig = typesKeys.map((k) => `${k}:${types[k]}`).join(",");
+        const rf = ce.detail.optionPropRefreshersByName || {};
+        const rfKeys = Object.keys(rf).sort();
+        const rfSig = rfKeys.map((k) => `${k}:[${(rf[k] || []).slice().sort().join("|")} ]`).join(";");
+        const metaSig = [props, reqSig, typesSig, rfSig].join("#");
+        const prev = propsMetaSigByNodeRef.current[id];
+        if (prev === metaSig) return; // no changes, avoid state churn
+        propsMetaSigByNodeRef.current[id] = metaSig;
+        updateNodeData(id, {
+          optionProps: ce.detail.optionProps || [],
+          optionPropsRequiredByName: ce.detail.optionPropsRequiredByName || {},
+          optionPropTypesByName: ce.detail.optionPropTypesByName || {},
+          optionPropRefreshersByName: ce.detail.optionPropRefreshersByName || {},
+        } as unknown as Record<string, unknown>);
+      } catch { /* noop */ }
+    };
+    window.addEventListener("zw:update-node-props-meta", handler as EventListener);
+    return () => window.removeEventListener("zw:update-node-props-meta", handler as EventListener);
+  }, [updateNodeData]);
   const handleStepUpdate = useCallback(
     (
       stepId: string,
@@ -523,9 +729,43 @@ export default function FlowEditorPage() {
         config?: Record<string, unknown>;
       } | null>
     ) => {
-      updateNodeData(stepId, updates as Record<string, unknown>);
+      try {
+        const node = nodes.find((n) => n.id === stepId);
+        if (!node) return;
+        const nodeType = node.data.type as string;
+        const isPiece = nodeType === "action" || nodeType === "trigger";
+        if (!isPiece) return;
+        const config = ((updates?.config ?? node.data.config) || {}) as Record<string, unknown>;
+        const inputCfg = ((config["input"] as Record<string, unknown> | undefined) || {}) as Record<string, unknown>;
+        const requiredProps: string[] = [];
+        try {
+          // Prefer dynamically discovered props stored on node (if any)
+          const optProps = (node.data.optionProps as string[] | undefined) || [];
+          const reqByName = (node.data.optionPropsRequiredByName as Record<string, boolean> | undefined) || {};
+          optProps.forEach((p) => { if (reqByName[p]) requiredProps.push(p); });
+        } catch { /* noop */ }
+        // Fallback: mark connectionId as required for piece nodes
+        if (!requiredProps.includes("connectionId")) requiredProps.push("connectionId");
+        const missing: string[] = requiredProps.filter((p) => {
+          if (p === "connectionId") {
+            const conn = (config as Record<string, unknown>)?.["connectionId"] as unknown;
+            const auth = (config as Record<string, unknown>)?.["auth"] as unknown;
+            return (conn === undefined || conn === null || String(conn) === "") && (auth === undefined || auth === null || String(auth) === "");
+          }
+          const v = (inputCfg as Record<string, unknown>)[p];
+          return v === undefined || v === null || String(v) === "";
+        });
+        const incomingSig = missing.slice().sort().join("|");
+        const currentErrors = node.data.validationErrors as string[] | undefined;
+        const currentSig = Array.isArray(currentErrors) ? currentErrors.slice().sort().join("|") : undefined;
+        const merged = { ...(updates as Record<string, unknown>) } as Record<string, unknown>;
+        if (incomingSig !== currentSig) {
+          merged.validationErrors = missing as unknown as string[];
+        }
+        updateNodeData(stepId, merged);
+      } catch { /* noop */ }
     },
-    [updateNodeData]
+    [updateNodeData, nodes]
   );
   const handleConnectionModalOpen = useCallback((piece: ConnectionPiece) => {
     setConnectionPiece(piece);
@@ -535,8 +775,12 @@ export default function FlowEditorPage() {
     setShowConnectionModal(false);
     setConnectionPiece(null);
   }, []);
-  const handleConnectionCreated = useCallback(() => {
+  const handleConnectionCreated = useCallback((connection: Connection) => {
     handleConnectionModalClose();
+    try {
+      const evt = new CustomEvent("zw:connection:created", { detail: { connection } });
+      window.dispatchEvent(evt);
+    } catch { /* noop */ }
   }, [handleConnectionModalClose]);
   const selectedNode = selectedNodeId
     ? nodes.find((n) => n.id === selectedNodeId)
@@ -545,26 +789,26 @@ export default function FlowEditorPage() {
   return (
     <div className="h-screen w-full flex flex-col bg-theme-background relative overflow-hidden">
       <div className="sticky top-0 z-10 h-[7vh] max-h-[10vh] flex items-center w-full border-b border-white/20 dark:border-white/10 bg-theme-form/95 backdrop-blur-md shadow-sm">
-        <div className="flex items-center justify-between px-4 w-full">
-          <div className="flex items-center gap-4">
+        <div className="flex items-center justify-between px-[1vw] w-full">
+          <div className="flex items-center gap-[0.8vw]">
             <button
               onClick={handleBackToFlows}
-              className="flex items-center gap-2 text-theme-secondary hover:text-theme-primary transition-colors"
+              className="flex items-center gap-[0.5vw] text-theme-secondary hover:text-theme-primary transition-colors"
             >
-              <ArrowLeft size={16} className="m-0 p-0" />
-              <span className="font-medium text-sm">Back to Flows</span>
+              <ArrowLeft className="h-[1vw] w-[1vw] m-0 p-0" />
+              <span className="font-medium text-[0.9vw]">Back to Flows</span>
             </button>
-            <div className="h-6 w-px bg-white/20 dark:bg-white/10" />
-            <h1 className="text-md font-semibold text-theme-primary">
+            <div className="h-[1.4vw] w-px bg-white/20 dark:bg-white/10" />
+            <h1 className="text-[1vw] font-semibold text-theme-primary">
               Flow Editor
             </h1>
             {isDirty && (
-              <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-[#fbbf24]/20 text-[#d97706] border border-[#fbbf24]/30">
+              <span className="inline-flex items-center px-[0.6vw] py-[0.25vw] rounded-full text-[0.8vw] font-medium bg-[#fbbf24]/20 text-[#d97706] border border-[#fbbf24]/30">
                 Unsaved changes
               </span>
             )}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-[0.6vw]">
             <ThemeToggle variant="button" />
             <button
               onClick={async () => {
@@ -602,18 +846,18 @@ export default function FlowEditorPage() {
                 }
               }}
               disabled={isToggleLoading}
-              className={`flex items-center gap-2 px-3 py-2 text-xs font-medium rounded-xl transition-colors focus:outline-none focus:ring-2 disabled:opacity-50 disabled:cursor-not-allowed ${
+              className={`flex items-center gap-[0.5vw] px-[0.9vw] py-[0.6vw] text-[0.8vw] font-medium rounded-[0.8vw] transition-colors focus:outline-none focus:ring-[0.15vw] disabled:opacity-50 disabled:cursor-not-allowed ${
                 isFlowEnabled
                   ? "bg-[#10b981] text-white hover:bg-[#059669] focus:ring-[#10b981]/20"
                   : "bg-[#6b7280] text-white hover:bg-[#4b5563] focus:ring-[#6b7280]/20"
               }`}
             >
               {isToggleLoading ? (
-                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                <div className="w-[1vw] h-[1vw] border-[0.15vw] border-white/30 border-t-white rounded-full animate-spin" />
               ) : isFlowEnabled ? (
-                <ToggleRight size={15} />
+                <ToggleRight className="h-[0.9vw] w-[0.9vw]" />
               ) : (
-                <ToggleLeft size={15} />
+                <ToggleLeft className="h-[0.9vw] w-[0.9vw]" />
               )}
               {isToggleLoading
                 ? "Loading..."
@@ -623,9 +867,9 @@ export default function FlowEditorPage() {
             </button>
             <button
               onClick={() => saveWorkflow()}
-              className="px-3 py-2 bg-theme-primary text-theme-inverse text-xs font-medium rounded-xl hover:bg-[#a08fff] transition-colors focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+              className="px-[0.9vw] py-[0.6vw] bg-theme-primary text-theme-inverse text-[0.8vw] font-medium rounded-[0.8vw] hover:bg-[#a08fff] transition-colors focus:outline-none focus:ring-[0.15vw] focus:ring-theme-primary/20"
             >
-              <Save size={15} className="inline mr-1" />
+              <Save className="inline mr-[0.3vw] h-[0.9vw] w-[0.9vw]" />
               Save
             </button>
             {/* <button
@@ -695,17 +939,17 @@ export default function FlowEditorPage() {
                   // toastError("Publish failed", "Could not publish flow");
                 }
               }}
-              className="px-3 py-2 bg-[#22d3ee] text-[#0b132b] text-xs font-medium rounded-xl hover:bg-[#06b6d4] transition-colors focus:outline-none focus:ring-2 focus:ring-[#22d3ee]/20"
+              className="px-[0.9vw] py-[0.6vw] bg-[#22d3ee] text-[#0b132b] text-[0.8vw] font-medium rounded-[0.8vw] hover:bg-[#06b6d4] transition-colors focus:outline-none focus:ring-[0.15vw] focus:ring-[#22d3ee]/20"
             >
-              <Rocket size={15} className="inline mr-1" />
+              <Rocket className="inline mr-[0.3vw] h-[0.9vw] w-[0.9vw]" />
               Publish
             </button>
             <button
               onClick={() => runWorkflow()}
               disabled={isRunning}
-              className="px-3 py-2 bg-[#a4f5a6] text-[#222222] text-xs font-medium rounded-xl hover:bg-[#8dff8d] disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-2 focus:ring-[#a4f5a6]/20"
+              className="px-[0.9vw] py-[0.6vw] bg-[#a4f5a6] text-[#222222] text-[0.8vw] font-medium rounded-[0.8vw] hover:bg-[#8dff8d] disabled:opacity-50 disabled:cursor-not-allowed transition-colors focus:outline-none focus:ring-[0.15vw] focus:ring-[#a4f5a6]/20"
             >
-              <Play size={15} className="inline mr-1" />
+              <Play className="inline mr-[0.3vw] h-[0.9vw] w-[0.9vw]" />
               {isRunning ? "Running..." : "Run"}
             </button>
           </div>
@@ -725,22 +969,25 @@ export default function FlowEditorPage() {
               <div className="relative inline-block text-left">
                 <button
                   onClick={() => setShowAddMenu((v) => !v)}
-                  className="flex items-center gap-2 px-3 py-2 bg-theme-form/95 backdrop-blur-md border border-white/20 dark:border-white/10 rounded-xl shadow-sm hover:bg-theme-input-focus transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+                  className="flex items-center gap-[0.5vw] px-[0.9vw] py-[0.6vw] bg-white/30 backdrop-blur-sm border border-white/20 dark:border-white/10 rounded-[0.8vw] shadow-sm hover:bg-theme-input-focus transition-all duration-200 focus:outline-none focus:ring-[0.15vw] focus:ring-theme-primary/20"
                 >
-                  <Plus size={16} className="text-theme-primary" />
-                  <span className="text-sm font-medium text-theme-primary">
+                  <Plus className="h-[1vw] w-[1vw] text-theme-primary" />
+                  <span className="text-[0.9vw] font-medium text-theme-primary">
                     Add Node
                   </span>
-                  <ChevronDown size={14} className="text-theme-secondary" />
+                  <ChevronDown className="h-[0.9vw] w-[0.9vw] text-theme-secondary" />
                 </button>
                 {showAddMenu && (
-                  <div className="absolute mt-2 w-40 rounded-xl bg-theme-form/95 backdrop-blur-md border border-white/20 dark:border-white/10 shadow-lg py-1">
+                  <div className="absolute mt-[0.6vw] w-[16vw] rounded-[0.8vw] bg-white/40 backdrop-blur-sm border border-white/20 dark:border-white/10 shadow-md py-[0.4vw]">
                     <button
                       onClick={() => {
+                        // Close Step Settings when adding a new empty node
+                        setIsStepSettingsOpen(false);
+                        setSelectedNodeId(null);
                         addEmptyNode();
                         setShowAddMenu(false);
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-theme-primary hover:bg-theme-input-focus"
+                      className="w-full text-left px-[0.9vw] py-[0.6vw] text-[0.9vw] text-theme-primary hover:bg-theme-input-focus"
                     >
                       Empty Node
                     </button>
@@ -749,7 +996,7 @@ export default function FlowEditorPage() {
                         addRouterNode();
                         setShowAddMenu(false);
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-theme-primary hover:bg-theme-input-focus"
+                      className="w-full text-left px-[0.9vw] py-[0.6vw] text-[0.9vw] text-theme-primary hover:bg-theme-input-focus"
                     >
                       Router
                     </button>
@@ -758,7 +1005,7 @@ export default function FlowEditorPage() {
                         addLoopNode();
                         setShowAddMenu(false);
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-theme-primary hover:bg-theme-input-focus"
+                      className="w-full text-left px-[0.9vw] py-[0.6vw] text-[0.9vw] text-theme-primary hover:bg-theme-input-focus"
                     >
                       Loop
                     </button>
@@ -767,7 +1014,7 @@ export default function FlowEditorPage() {
                         addCodeNode();
                         setShowAddMenu(false);
                       }}
-                      className="w-full text-left px-3 py-2 text-sm text-theme-primary hover:bg-theme-input-focus"
+                      className="w-full text-left px-[0.9vw] py-[0.6vw] text-[0.9vw] text-theme-primary hover:bg-theme-input-focus"
                     >
                       Code
                     </button>
@@ -802,26 +1049,31 @@ export default function FlowEditorPage() {
               ]}
               style={{ width: "100%", height: "100%" }}
             >
-              <Background variant={BackgroundVariant.Dots} gap={20} size={1} />
-              <Controls />
-              <MiniMap />
+              <Background variant={BackgroundVariant.Dots} gap={bgGapPx} size={bgSizePx} />
+              <Controls style={{ transform: `scale(${controlsScale})`, transformOrigin: "bottom right" }} />
+              <MiniMap
+                style={{
+                  transform: miniMapOffset ? `translateY(-${miniMapOffset}px)` : "translateY(0)",
+                  transition: "transform 300ms",
+                }}
+              />
             </ReactFlow>
           </div>
 
           {isStepSettingsOpen && (
             <div
-              className="w-1 min-w-[4px] bg-white/20 dark:bg-white/10 hover:bg-white/30 dark:hover:bg-white/20 cursor-col-resize flex items-center justify-center relative transition-colors duration-200"
+              className="w-[0.25vw] min-w-[0.25vw] !bg-[#e3e3e5] dark:bg-white/10 hover:bg-white/30 dark:hover:bg-white/20 cursor-col-resize flex items-center justify-center relative transition-colors duration-200"
               onMouseDown={handleMouseDown}
             >
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-1 h-8 bg-theme-primary/50 rounded-full hover:bg-theme-primary transition-colors duration-200"></div>
+                <div className="w-[0.25vw] h-[2vw] bg-[#b8b8b8] rounded-full hover:bg-theme-primary transition-colors duration-200"></div>
               </div>
             </div>
           )}
 
           {isStepSettingsOpen && selectedNode && (
             <div
-              className="bg-theme-form/95 backdrop-blur-md border-l border-white/20 dark:border-white/10 h-full min-h-0 overflow-hidden"
+              className="bg-theme-form/95 backdrop-blur-md border-l border-white/20 dark:border-white/10 h-full min-h-0 overflow-hidden text-[0.9vw]"
               style={{ width: `${100 - splitWidth}%` }}
             >
               <React.Suspense
@@ -832,12 +1084,15 @@ export default function FlowEditorPage() {
                 }
               >
                 <StepSettingsLazy
+                  key={selectedNode.id}
                   isOpen={isStepSettingsOpen}
                   step={{
                     id: selectedNode.id,
                     name: selectedNode.data.name || selectedNode.data.label,
                     type:
                       selectedNode.data.type === "trigger"
+                        ? "trigger"
+                        : (!edges.some((e) => e.target === selectedNode.id) && selectedNode.data.triggerName)
                         ? "trigger"
                         : selectedNode.data.type === "code"
                         ? "code"
@@ -1040,9 +1295,9 @@ export default function FlowEditorPage() {
       {isPieceSelectorOpen && (
         <React.Suspense
           fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center">
-              <div className="px-4 py-2 rounded-xl bg-theme-form/95 border border-white/20 dark:border-white/10 text-theme-secondary shadow-lg">
-                Loading pieces...
+            <div className="absolute top-4 right-4 z-40 pointer-events-none">
+              <div className="px-3 py-1.5 rounded-xl bg-theme-form/95 border border-white/20 dark:border-white/10 text-theme-secondary shadow-lg text-xs pointer-events-auto">
+                Loading pieces…
               </div>
             </div>
           }
@@ -1063,16 +1318,18 @@ export default function FlowEditorPage() {
         isOpen={isDataSelectorOpen}
         onClose={() => setIsDataSelectorOpen(false)}
         previousNodes={(function getPrev(){
-          const prev: Array<{ id: string; displayName: string; stepName?: string }> = [];
+          const prev: Array<{ id: string; displayName: string; stepName?: string; isWebhookTrigger?: boolean }> = [];
           try {
-            const nodesList = (reactFlowInstance?.getNodes?.() as Array<{ id: string; data?: { label?: string; name?: string } }>) || [];
+            const nodesList = (reactFlowInstance?.getNodes?.() as Array<{ id: string; data?: { label?: string; name?: string; type?: string; pieceName?: string } }>) || [];
             const selectedIdx = selectedNodeId ? nodesList.findIndex((n) => n.id === selectedNodeId) : -1;
             const upto = selectedIdx >= 0 ? selectedIdx : nodesList.length;
-            type NodeLite = { id: string; data?: { label?: string; name?: string } };
-            (nodesList as NodeLite[]).slice(0, upto).forEach((n) => {
+            type NodeLite = { id: string; data?: { label?: string; name?: string; type?: string; pieceName?: string } };
+            const root = (nodesList as NodeLite[])[0];
+            const isWebhookTriggerRoot = !!(root && root.data && root.data.type === "trigger" && !root.data.pieceName);
+            (nodesList as NodeLite[]).slice(0, upto).forEach((n, idx) => {
               const label = n?.data?.label;
               if (n && n.id && typeof label === "string") {
-                prev.push({ id: n.id, displayName: label, stepName: n?.data?.name || n.id });
+                prev.push({ id: n.id, displayName: label, stepName: n?.data?.name || n.id, isWebhookTrigger: idx === 0 && isWebhookTriggerRoot });
               }
             });
           } catch { /* noop */ }
@@ -1082,9 +1339,9 @@ export default function FlowEditorPage() {
       {showConnectionModal && connectionPiece && (
         <React.Suspense
           fallback={
-            <div className="fixed inset-0 z-50 flex items-center justify-center">
-              <div className="px-4 py-2 rounded-xl bg-theme-form/95 border border-white/20 dark:border-white/10 text-theme-secondary shadow-lg">
-                Loading connection...
+            <div className="absolute top-4 right-4 z-40 pointer-events-none">
+              <div className="px-3 py-1.5 rounded-xl bg-theme-form/95 border border-white/20 dark:border-white/10 text-theme-secondary shadow-lg text-xs pointer-events-auto">
+                Loading connection…
               </div>
             </div>
           }

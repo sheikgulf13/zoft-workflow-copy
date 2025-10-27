@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useContextStore } from "../../../app/store/context";
 import FlowsToolbar from "../components/FlowsToolbar";
-import FlowList from "../components/FlowList";
+import FlowsTable from "../components/FlowsTable";
 import {
   countFlows,
   deleteFlow,
@@ -87,37 +87,26 @@ export default function FlowsPage() {
   }, [currentProjectId]);
 
   return (
-    <div className="space-y-6">
+    <div className="h-full flex flex-col overflow-hidden gap-[1.2vw] px-[1vw]">
       <FlowsToolbar
         onCreate={() => setIsCreateModalOpen(true)}
         total={flowCount}
         onRefresh={loadData}
         loading={isLoading}
       />
+      <div className="flex-1 min-h-0 overflow-hidden px-[1vw]">
       {isLoading ? (
-        <div className="space-y-4">
-          {Array.from({ length: 3 }).map((_, idx) => (
-            <div
-              key={idx}
-              className="rounded-2xl border border-white/20 dark:border-white/10 bg-theme-form/95 backdrop-blur-md p-6 shadow-sm"
-            >
-              <div className="flex items-center justify-between">
-                <div className="animate-pulse space-y-2">
-                  <div className="h-4 w-40 bg-white/20 rounded" />
-                  <div className="h-3 w-64 bg-white/10 rounded" />
-                  <div className="h-3 w-32 bg-white/10 rounded" />
-                </div>
-              </div>
-            </div>
-          ))}
+        <div className="h-full w-full flex items-center justify-center">
+          <div className="text-[1vw] text-theme-secondary">Loading...</div>
         </div>
       ) : (
-        <FlowList
+        <FlowsTable
           flows={flows}
           onOpen={handleOpenFlow}
           onDelete={(id) => setConfirmDeleteId(id)}
         />
       )}
+      </div>
 
       <CreateFlowModal
         isOpen={isCreateModalOpen}
@@ -126,24 +115,24 @@ export default function FlowsPage() {
 
       {confirmDeleteId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm rounded-2xl bg-theme-form/95 backdrop-blur-md border border-white/20 dark:border-white/10 p-6 shadow-2xl">
-            <h3 className="text-lg font-semibold text-theme-primary">
+          <div className="w-full max-w-sm rounded-[1vw] bg-theme-form/95 backdrop-blur-md border border-white/20 dark:border-white/10 p-[1.2vw] shadow-2xl">
+            <h3 className="text-[1.1vw] font-semibold text-theme-primary">
               Delete flow?
             </h3>
-            <p className="text-sm text-theme-secondary mt-1">
+            <p className="text-[0.9vw] text-theme-secondary mt-[0.25vw]">
               This action cannot be undone.
             </p>
-            <div className="mt-4 flex items-center justify-end gap-3">
+            <div className="mt-[1vw] flex items-center justify-end gap-[0.6vw]">
               <button
                 onClick={() => setConfirmDeleteId(null)}
-                className="rounded-xl px-4 py-2 text-sm font-semibold text-theme-secondary transition-colors hover:bg-theme-input-focus"
+                className="rounded-[0.8vw] px-[1vw] py-[0.6vw] text-[0.9vw] font-semibold text-theme-secondary transition-colors hover:bg-theme-input-focus"
               >
                 Cancel
               </button>
               <button
                 onClick={confirmAndDelete}
                 disabled={isDeleting === confirmDeleteId}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#ef4a45] px-5 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#dc2626] disabled:opacity-60"
+                className="inline-flex items-center justify-center gap-[0.5vw] rounded-[0.8vw] bg-[#C43201] px-[1.2vw] py-[0.6vw] text-[0.9vw] font-semibold text-white transition-colors hover:bg-[#C43201]/90 disabled:opacity-60"
               >
                 {isDeleting === confirmDeleteId ? "Deleting..." : "Delete"}
               </button>

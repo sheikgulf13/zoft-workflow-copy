@@ -12,6 +12,8 @@ import {
   Settings,
   User2,
   ChevronDown,
+  ChevronsLeft,
+  ChevronsRight,
   Search,
   Plus,
   Pencil,
@@ -42,7 +44,7 @@ const navItems = {
     { label: "Agents", to: "/agents", icon: Bot },
     { label: "Tables", to: "/tables", icon: Database },
     { label: "MCP", to: "/mcp", icon: Puzzle },
-    { label: "Todos", to: "/todos", icon: CheckSquare },
+    { label: "Templates", to: "/templates", icon: CheckSquare },
   ],
   misc: [
     {
@@ -79,6 +81,14 @@ function AppLayout() {
   );
   const setProjectDetails = useContextStore((s) => s.setProjectDetails);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(() => {
+    try {
+      return sessionStorage.getItem("zw_sidebar_collapsed") === "1";
+    } catch {
+      return false;
+    }
+  });
+  // reverted last change: remove transition-end based alignment logic
   const [searchQuery, setSearchQuery] = useState("");
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [newProjectName, setNewProjectName] = useState("");
@@ -106,8 +116,7 @@ function AppLayout() {
   const [editOriginalDesc, setEditOriginalDesc] = useState<string>("");
   const [isUpdatingProject, setIsUpdatingProject] = useState(false);
 
-  // Check if we're on the flow editor page
-  const isFlowEditor = location.pathname === "/flows/create";
+  // Platform Admin route flag (reserved for future conditional UI tweaks)
   const isPlatformAdmin = location.pathname.startsWith("/enter-platform-admin");
 
   // Close dropdowns when clicking outside
@@ -189,56 +198,82 @@ function AppLayout() {
     }
   };
 
-  // If we're on the flow editor, render without sidebar
-  if (isFlowEditor) {
-    return <Outlet />;
-  }
+  // Always render the standard layout (sidebar + main) including for flow editor
 
   return (
     <div className="min-h-screen bg-theme-background">
       <div className="flex h-screen">
-        <aside className="flex h-full w-64 flex-col bg-theme-form/95 backdrop-blur-md border-r border-white/20 dark:border-white/10 shadow-xl">
-          <div className="flex items-center justify-between w-full gap-3 border-b border-white/20 dark:border-white/10 px-6 py-6">
+        <aside
+          className={`flex h-full ${isSidebarCollapsed ? "w-[5.2vw]" : "w-[16.5vw]"} flex-none flex-col bg-[#ebebeb] backdrop-blur-md border-r-[0.15vw] border-[#e3e3e5] dark:border-[#ededed] overflow-hidden`}
+          style={{
+            willChange: "width",
+            transitionProperty: "width, padding",
+            transitionDuration: "220ms",
+            transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          {/* Sidebar collapse/expand toggle - placed above project/settings section */}
+          <div className={`flex items-center w-full ${isSidebarCollapsed ? "justify-center" : "justify-end"} px-[0.6vw] py-[0.4vw]`}>
+            <button
+              type="button"
+              aria-label={isSidebarCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={() => {
+                setIsSidebarCollapsed((prev) => {
+                  const next = !prev;
+                  try { sessionStorage.setItem("zw_sidebar_collapsed", next ? "1" : "0"); } catch { void 0; }
+                  return next;
+                });
+              }}
+              className="rounded-[0.8vw] p-[0.6vw] text-theme-secondary hover:bg-theme-input hover:text-theme-primary transition-colors"
+            >
+              {isSidebarCollapsed ? (
+                <ChevronsRight className="h-[1vw] w-[1vw]" />
+              ) : (
+                <ChevronsLeft className="h-[1vw] w-[1vw]" />
+              )}
+            </button>
+          </div>
+
+          <div className={`flex items-center w-full border-b border-white/20 dark:border-white/10 ${isSidebarCollapsed ? "justify-center px-[0.3vw] py-[0.6vw]" : "justify-between gap-[0.6vw] px-[0.6vw] py-[0.6vw]"}`}>
+            {!isSidebarCollapsed && (
             <div className="relative w-[80%]">
               <button
                 type="button"
                 onClick={() => setIsDropdownOpen((o) => !o)}
-                className="flex w-full items-center justify-between rounded-2xl border border-white/20 dark:border-white/10 bg-theme-input px-4 py-2.5 text-left text-sm font-semibold text-theme-primary shadow-sm transition-all duration-200 hover:bg-theme-input-focus focus:outline-none focus:ring-2 focus:ring-theme-primary/20"
+                className="flex w-full items-center justify-between rounded-[0.8vw] border border-white/20 dark:border-white/10 bg-theme-input px-[1vw] py-[0.7vw] text-left text-[0.9vw] font-semibold text-theme-primary shadow-sm transition-all duration-200 hover:bg-theme-input-focus focus:outline-none focus:ring-[0.15vw] focus:ring-theme-primary/20"
                 aria-haspopup="listbox"
                 aria-expanded={isDropdownOpen}
               >
                 <div className="min-w-0 flex-1">
                   <span
-                    className="block truncate"
+                    className="block truncate text-[0.9vw]"
                     title={currentProject?.name ?? "Select project"}
                   >
                     {currentProject?.name ?? "Select project"}
                   </span>
                 </div>
-                <ChevronDown
-                  size={16}
-                  className="ml-2 shrink-0 text-theme-secondary"
-                />
+                <ChevronDown className="ml-[0.5vw] shrink-0 text-theme-secondary h-[1vw] w-[1vw]" />
               </button>
             </div>
-            {isDropdownOpen && (
-              <div className="absolute left-5 top-18 z-20 mt-2 w-[80%] overflow-hidden rounded-2xl border border-white/20 dark:border-white/10 bg-theme-input backdrop-blur-md shadow-xl">
-                <div className="border-b border-white/20 dark:border-white/10 p-3">
+            )}
+            {!isSidebarCollapsed && isDropdownOpen && (
+              <div className="absolute left-[1.2vw] top-[4vw] z-20 mt-[0.5vw] w-[80%] overflow-hidden rounded-[0.8vw] border border-white/20 dark:border-white/10 bg-theme-input backdrop-blur-md shadow-xl">
+                <div className="border-b border-white/20 dark:border-white/10 p-[0.9vw]">
                   <div
-                    className="mb-2 text-xs font-semibold uppercase tracking-wider text-theme-secondary truncate"
+                    className="mb-[0.4vw] text-[0.75vw] font-semibold uppercase tracking-wider text-theme-secondary truncate"
                     title={currentPlatform?.name ?? "Platform"}
                   >
                     {currentPlatform?.name ?? "Platform"}
                   </div>
                   <div className="relative">
-                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3 text-theme-tertiary">
-                      <Search size={14} />
+                    <span className="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-[0.9vw] text-theme-tertiary">
+                      <Search className="h-[0.9vw] w-[0.9vw]" />
                     </span>
                     <input
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="Search projects"
-                      className="block w-full rounded-xl border border-white/20 dark:border-white/10 bg-theme-input px-3 py-2 pl-9 text-sm text-theme-primary placeholder:text-theme-tertiary outline-none transition-all duration-200 focus:bg-theme-input-focus focus:ring-2 focus:ring-theme-primary/20"
+                      className="block w-full rounded-[0.8vw] border border-white/20 dark:border-white/10 bg-theme-input px-[0.9vw] py-[0.6vw] pl-[2.2vw] text-[0.9vw] text-theme-primary placeholder:text-theme-tertiary outline-none transition-all duration-200 focus:bg-theme-input-focus focus:ring-[0.15vw] focus:ring-theme-primary/20"
                     />
                   </div>
                   <button
@@ -260,9 +295,9 @@ function AppLayout() {
                       setIsCreateOpen(true);
                       setIsDropdownOpen(false);
                     }}
-                    className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[#b3a1ff]/20 bg-[#b3a1ff]/10 px-3 py-2 text-sm font-semibold text-[#b3a1ff] transition-all duration-200 hover:bg-[#b3a1ff]/20 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-theme-accent/20"
+                    className="mt-[0.8vw] inline-flex w-full items-center justify-center gap-[0.6vw] rounded-[0.8vw] border border-[#b3a1ff]/20 bg-[#b3a1ff]/10 px-[0.9vw] py-[0.6vw] text-[0.9vw] font-semibold text-[#b3a1ff] transition-all duration-200 hover:bg-[#b3a1ff]/20 hover:scale-[1.02] focus:outline-none focus:ring-[0.15vw] focus:ring-theme-accent/20"
                   >
-                    <Plus size={16} /> Create project
+                    <Plus className="h-[1vw] w-[1vw]" /> Create project
                   </button>
                 </div>
 
@@ -353,24 +388,38 @@ function AppLayout() {
             </button>
           </div>
 
-          <nav className="flex-1 overflow-y-auto px-4 py-8 scrollbar-theme">
-            <div className="space-y-6">
+          <nav
+            className="flex-1 overflow-y-auto px-[0.6vw] py-[0.8vw] scrollbar-theme"
+            style={{
+              transitionProperty: "padding, opacity",
+              transitionDuration: "220ms",
+              transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+            }}
+          >
+            <div className={isSidebarCollapsed ? "space-y-1" : "space-y-4"}>
               {/* Main Navigation */}
-              <ul className="space-y-1">
+              <ul className="space-y-0">
                 {navItems.main.map((item) => (
                   <li key={item.to}>
                     <NavLink
                       to={item.to}
                       className={({ isActive }) =>
-                        `flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium transition-all duration-200 ${
+                        `group flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-[0.6vw] px-[0.9vw]"} py-[0.4vw] rounded-[0.8vw] text-[0.85vw] font-medium transition-all duration-200 ${
                           isActive
                             ? "bg-[#b3a1ff] text-[#222222] shadow-lg"
                             : "text-theme-secondary hover:bg-theme-input hover:text-theme-primary"
                         }`
                       }
+                      style={{}}
                     >
-                      <item.icon size={16} />
-                      {item.label}
+                      <item.icon className="shrink-0 transition-all duration-200 group-hover:scale-[1.02] h-[1.1vw] w-[1.1vw]" />
+                      <span
+                        className={`overflow-hidden transition-all duration-200 ${
+                          isSidebarCollapsed ? "opacity-0 max-w-0 ml-0" : "opacity-100 max-w-[11vw] ml-[0.5vw]"
+                        }`}
+                      >
+                        {item.label}
+                      </span>
                     </NavLink>
                   </li>
                 ))}
@@ -378,24 +427,33 @@ function AppLayout() {
 
               {/* Products Section */}
               <div>
-                <h3 className="px-4 text-xs font-semibold text-theme-secondary uppercase tracking-wider mb-3">
-                  Products
-                </h3>
-                <ul className="space-y-1">
+                {!isSidebarCollapsed && (
+                  <h3 className="px-[0.9vw] text-[0.7vw] font-semibold text-theme-secondary uppercase tracking-wider mb-[0.4vw]">
+                    Products
+                  </h3>
+                )}
+                <ul className="space-y-0">
                   {navItems.products.map((item) => (
                     <li key={item.to}>
                       <NavLink
                         to={item.to}
                         className={({ isActive }) =>
-                          `flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 ${
+                          `group flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-[0.6vw] px-[0.9vw]"} py-[0.4vw] rounded-[0.6vw] text-[0.8vw] font-medium transition-all duration-200 ${
                             isActive
                               ? "bg-theme-primary text-theme-inverse shadow-sm border border-theme-primary"
                               : "text-theme-secondary hover:bg-theme-surface-hover hover:text-theme-primary"
                           }`
                         }
+                        style={{}}
                       >
-                        <item.icon size={16} />
-                        {item.label}
+                        <item.icon className="shrink-0 transition-all duration-200 group-hover:scale-[1.02] h-[1.1vw] w-[1.1vw]" />
+                        <span
+                          className={`overflow-hidden transition-all duration-200 ${
+                            isSidebarCollapsed ? "opacity-0 max-w-0 ml-0" : "opacity-100 max-w-[11vw] ml-[0.5vw]"
+                          }`}
+                        >
+                          {item.label}
+                        </span>
                       </NavLink>
                     </li>
                   ))}
@@ -404,24 +462,33 @@ function AppLayout() {
 
               {/* Misc Section */}
               <div>
-                <h3 className="px-4 text-xs font-semibold text-theme-secondary uppercase tracking-wider mb-3">
-                  Misc
-                </h3>
-                <ul className="space-y-1">
+                {!isSidebarCollapsed && (
+                  <h3 className="px-[0.9vw] text-[0.7vw] font-semibold text-theme-secondary uppercase tracking-wider mb-[0.4vw]">
+                    Misc
+                  </h3>
+                )}
+                <ul className="space-y-0">
                   {navItems.misc.map((item) => (
                     <li key={item.to}>
                       <NavLink
                         to={item.to}
                         className={({ isActive }) =>
-                          `flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 ${
+                          `group flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-[0.6vw] px-[0.9vw]"} py-[0.4vw] rounded-[0.6vw] text-[0.8vw] font-medium transition-all duration-200 ${
                             isActive
                               ? "bg-theme-primary text-theme-inverse shadow-sm border border-theme-primary"
                               : "text-theme-secondary hover:bg-theme-surface-hover hover:text-theme-primary"
                           }`
                         }
+                        style={{}}
                       >
-                        <item.icon size={16} />
-                        {item.label}
+                        <item.icon className="shrink-0 transition-all duration-200 group-hover:scale-[1.02] h-[1.1vw] w-[1.1vw]" />
+                        <span
+                          className={`overflow-hidden transition-all duration-200 ${
+                            isSidebarCollapsed ? "opacity-0 max-w-0 ml-0" : "opacity-100 max-w-[11vw] ml-[0.5vw]"
+                          }`}
+                        >
+                          {item.label}
+                        </span>
                       </NavLink>
                     </li>
                   ))}
@@ -430,34 +497,45 @@ function AppLayout() {
 
               {/* Others Section */}
               <div>
-                <h3 className="px-4 text-xs font-semibold text-theme-secondary uppercase tracking-wider mb-3">
-                  Others
-                </h3>
-                <ul className="space-y-1">
+                {!isSidebarCollapsed && (
+                  <h3 className="px-[0.9vw] text-[0.7vw] font-semibold text-theme-secondary uppercase tracking-wider mb-[0.4vw]">
+                    Others
+                  </h3>
+                )}
+                <ul className="space-y-0">
                   {navItems.others.map((item) => (
                     <li key={item.to}>
-                      {item.label === "Invite User" ? (
+                      {!isSidebarCollapsed && item.label === "Invite User" ? (
                         <button
                           type="button"
                           onClick={() => setIsInviteOpen(true)}
-                          className="w-full text-left flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-theme-secondary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary"
+                          className="w-full text-left flex items-center gap-[0.6vw] rounded-[0.8vw] px-[0.9vw] py-[0.4vw] text-[0.8vw] font-medium text-theme-secondary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary"
                         >
-                          <item.icon size={16} />
-                          {item.label}
+                          <item.icon className="shrink-0 transition-all duration-200 h-[1.1vw] w-[1.1vw]" />
+                          <span className={`transition-all duration-200 text-[0.8vw] ${
+                              isSidebarCollapsed ? "opacity-0 max-w-0 ml-0" : "opacity-100 max-w-[11vw] ml-[0.5vw]"
+                            }`}>{item.label}</span>
                         </button>
                       ) : (
                         <NavLink
                           to={item.to}
                           className={({ isActive }) =>
-                            `flex items-center gap-3 rounded-lg px-3 py-2 text-xs font-medium transition-all duration-200 ${
+                            `group flex items-center ${isSidebarCollapsed ? "justify-center px-0" : "justify-start gap-[0.6vw] px-[0.9vw]"} py-[0.4vw] rounded-[0.6vw] text-[0.8vw] font-medium transition-all duration-200 ${
                               isActive
                                 ? "bg-theme-primary text-theme-inverse shadow-sm border border-theme-primary"
                                 : "text-theme-secondary hover:bg-theme-surface-hover hover:text-theme-primary"
                             }`
                           }
+                          style={{}}
                         >
-                          <item.icon size={16} />
-                          {item.label}
+                          <item.icon className="shrink-0 transition-all duration-200 group-hover:scale-[1.02] h-[1.1vw] w-[1.1vw]" />
+                          <span
+                            className={`overflow-hidden transition-all duration-200 ${
+                              isSidebarCollapsed ? "opacity-0 max-w-0 ml-0" : "opacity-100 max-w-[11vw] ml-[0.5vw]"
+                            }`}
+                          >
+                            {item.label}
+                          </span>
                         </NavLink>
                       )}
                     </li>
@@ -467,46 +545,71 @@ function AppLayout() {
             </div>
           </nav>
 
-          <div className="flex flex-col items-center justify-center border-t border-white/20 dark:border-white/10 p-4">
+          <div className="flex flex-col items-center justify-center border-t border-white/20 dark:border-white/10 p-[0.9vw]">
             <ThemeToggle
               variant="dropdown"
               dropdownPosition="top"
-              widthFull={true}
-              className="w-full"
+              widthFull={!isSidebarCollapsed}
+              showLabel={!isSidebarCollapsed}
+              className={isSidebarCollapsed ? "flex justify-center w-full" : "w-full"}
             />
-            <div className="flex items-center gap-3 rounded-2xl bg-theme-input p-2 pt-4">
-              {user?.avatarUrl ? (
-                <img
-                  src={user.avatarUrl}
-                  className="h-8 w-8 rounded-xl object-cover ring-2 ring-white shadow-md"
-                  alt={user.name ?? "User avatar"}
-                />
-              ) : (
-                <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-[#b3a1ff] text-white ring-2 ring-white shadow-md">
-                  <User2 size={24} />
-                </div>
+            <div className="flex items-center justify-center gap-[0.6vw] rounded-[1vw] bg-theme-input p-[0.6vw] mt-[0.8vw] w-full">
+              {!isSidebarCollapsed && (
+                <>
+                  {user?.avatarUrl ? (
+                    <img
+                      src={user.avatarUrl}
+                      className="h-[2vw] w-[2vw] rounded-[0.8vw] object-cover ring-[0.15vw] ring-white shadow-md"
+                      alt={user.name ?? "User avatar"}
+                    />
+                  ) : (
+                    <div className="flex h-[2vw] w-[2vw] items-center justify-center rounded-[0.8vw] bg-[#b3a1ff] text-white ring-[0.15vw] ring-white shadow-md">
+                      <User2 className="h-[1.2vw] w-[1.2vw]" />
+                    </div>
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-[0.9vw] font-semibold text-theme-primary">
+                      {user?.name ?? "User"}
+                    </div>
+                    <div className="truncate text-[0.75vw] text-theme-secondary">
+                      {user?.email ?? ""}
+                    </div>
+                  </div>
+                </>
               )}
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-semibold text-theme-primary">
-                  {user?.name ?? "User"}
-                </div>
-                <div className="truncate text-xs text-theme-secondary">
-                  {user?.email ?? ""}
-                </div>
-              </div>
               <button
-                className="rounded-2xl p-2.5 text-theme-secondary transition-all duration-200 hover:bg-theme-input hover:text-theme-primary hover:scale-105"
+                className="rounded-[0.8vw] p-[0.6vw] text-theme-secondary transition-all duration-200 hover:bg-theme-input-focus hover:text-theme-primary"
                 onClick={handleSignOut}
                 aria-label="Sign out"
+                title="Sign out"
               >
-                <LogOut size={18} />
+                <LogOut className="h-[1.1vw] w-[1.1vw]" />
               </button>
             </div>
           </div>
         </aside>
 
-        <main className="flex-1 overflow-y-auto bg-theme-background scrollbar-theme">
-          <div className={location.pathname === "/home" || isPlatformAdmin ? "" : "p-8"}>
+        <main
+          className={`flex-1 ${
+            location.pathname.startsWith("/connections") || location.pathname.startsWith("/flows")
+              ? "overflow-hidden"
+              : "overflow-y-auto"
+          } bg-theme-background scrollbar-theme`}
+          style={{
+            transitionProperty: "margin, padding, width",
+            transitionDuration: "220ms",
+            transitionTimingFunction: "cubic-bezier(0.22, 1, 0.36, 1)",
+          }}
+        >
+          <div className={`${
+              location.pathname === "/home" || isPlatformAdmin || location.pathname === "/flows/create" || location.pathname === "/templates"
+                ? ""
+                : "p-6"
+            } ${
+              location.pathname.startsWith("/connections") || location.pathname.startsWith("/flows")
+                ? "h-full min-h-0"
+                : ""
+            }`}>
             <Outlet />
           </div>
         </main>
@@ -1165,10 +1268,10 @@ function ProjectList({
   return (
     <ul
       role="listbox"
-      className="max-h-64 overflow-y-auto p-2 [&::-webkit-scrollbar]:w-1 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-gray-200 [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:hover:bg-gray-300"
+      className="max-h-[20vw] overflow-y-auto p-[0.6vw] [&::-webkit-scrollbar]:w-[0.25vw] [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:bg-[#c3c3c7] dark:[&::-webkit-scrollbar-thumb]:bg-[#606066] [&::-webkit-scrollbar-thumb]:rounded-full hover:[&::-webkit-scrollbar-thumb]:bg-[#b0b0b4] dark:hover:[&::-webkit-scrollbar-thumb]:bg-[#707077]"
     >
       {filtered.length === 0 ? (
-        <li className="px-3 py-2 text-sm text-theme-secondary">
+        <li className="px-[0.9vw] py-[0.6vw] text-[0.9vw] text-theme-secondary">
           No projects found
         </li>
       ) : (
@@ -1176,7 +1279,7 @@ function ProjectList({
           <li key={proj.id}>
             <div
               onClick={() => onSelect(proj)}
-              className={`flex w-full items-center justify-between rounded-xl px-3 py-2 text-left text-sm transition-all duration-200 cursor-pointer ${
+              className={`flex w-full items-center justify-between rounded-[0.8vw] px-[0.9vw] py-[0.6vw] text-left text-[0.9vw] transition-all duration-200 cursor-pointer ${
                 proj.id === currentProjectId
                   ? "bg-theme-primary text-theme-inverse shadow-sm"
                   : "text-theme-primary hover:bg-theme-input"
@@ -1194,10 +1297,10 @@ function ProjectList({
               >
                 {proj.name}
               </span>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-[0.6vw]">
                 {proj.id === currentProjectId && (
                   <span
-                    className={`text-xs font-medium ${
+                    className={`text-[0.75vw] font-medium ${
                       proj.id === currentProjectId
                         ? "text-theme-inverse"
                         : "text-theme-primary"
@@ -1213,13 +1316,13 @@ function ProjectList({
                     e.stopPropagation();
                     onEditRequested(proj);
                   }}
-                  className={`rounded-lg p-1 transition-all duration-200 ${
+                  className={`rounded-[0.6vw] p-[0.4vw] transition-all duration-200 ${
                     proj.id === currentProjectId
                       ? "text-theme-inverse/80 hover:text-theme-inverse hover:bg-white/20"
                       : "text-theme-secondary hover:text-theme-primary hover:bg-theme-input-focus"
                   }`}
                 >
-                  <Pencil size={16} />
+                  <Pencil className="h-[1vw] w-[1vw]" />
                 </button>
                 <button
                   type="button"
@@ -1228,13 +1331,13 @@ function ProjectList({
                     e.stopPropagation();
                     onDeleteRequested(proj);
                   }}
-                  className={`rounded-lg p-1 transition-all duration-200 ${
+                  className={`rounded-[0.6vw] p-[0.4vw] transition-all duration-200 ${
                     proj.id === currentProjectId
                       ? "text-theme-inverse/80 hover:text-theme-inverse hover:bg-white/20"
                       : "text-theme-secondary hover:text-theme-primary hover:bg-theme-input-focus"
                   }`}
                 >
-                  <Trash2 size={16} />
+                  <Trash2 className="h-[1vw] w-[1vw]" />
                 </button>
               </div>
             </div>

@@ -10,6 +10,7 @@ import {
   Wrench,
 } from "lucide-react";
 import { toastError } from "../../../components/ui/Toast";
+import { http } from "../../../shared/api";
 
 export interface FlowPiece {
   id: string;
@@ -200,28 +201,52 @@ function FlowPieceSelector({
   const [selectedUtility, setSelectedUtility] = useState<
     "sftp" | "human" | "schedule" | "tables" | "webhook" | null
   >(null);
+  const piecesAbortRef = useRef<AbortController | null>(null);
+  const detailsAbortRef = useRef<AbortController | null>(null);
+
+  // Encode only the '/' in piece ids like '@activepieces/piece-gmail' → '@activepieces%2Fpiece-gmail'
+  const encodePodsId = (name: string) => name.replace(/\//g, "%2F");
 
   const fetchPieces = useCallback(async () => {
     try {
       setIsLoading(true);
       setHasError(false);
-      const response = await fetch(
-        "https://cloud.activepieces.com/api/v1/pieces"
+      // Abort any in-flight list request
+      if (piecesAbortRef.current) piecesAbortRef.current.abort();
+      piecesAbortRef.current = new AbortController();
+      const response = await http.get(
+        "/pods",
+       
       );
-      if (!response.ok) throw new Error("Failed to fetch pieces");
-      const data = await response.json();
-      const transformedPieces: FlowPiece[] = data.map(
-        (piece: Record<string, unknown>) => ({
-          id: piece.id as string,
-          name: piece.name as string,
-          displayName: piece.displayName as string,
-          logoUrl: piece.logoUrl as string,
-          description: piece.description as string,
-          category: "apps",
-          actions: [],
-          triggers: [],
-        })
-      );
+      const raw = response.data as unknown;
+      let list: Array<Record<string, unknown>> = [];
+      if (raw && typeof raw === "object") {
+        const obj = raw as Record<string, unknown>;
+        const dataObj = (obj["data"] as Record<string, unknown> | undefined) || {};
+        const pods = dataObj["pods"] as unknown;
+        if (Array.isArray(pods)) list = pods as Array<Record<string, unknown>>;
+      }
+      if (list.length === 0) {
+        // Fallbacks for older shapes
+        if (Array.isArray(raw)) list = raw as Array<Record<string, unknown>>;
+        else if (raw && typeof raw === "object") {
+          const obj = raw as Record<string, unknown>;
+          const items = obj["items"];
+          const data = obj["data"];
+          if (Array.isArray(items)) list = items as Array<Record<string, unknown>>;
+          else if (Array.isArray(data)) list = data as Array<Record<string, unknown>>;
+        }
+      }
+      const transformedPieces: FlowPiece[] = list.map((piece) => ({
+        id: String(piece.id ?? piece.name ?? ""),
+        name: String(piece.name ?? piece.id ?? ""),
+        displayName: String(piece.displayName ?? piece.name ?? ""),
+        logoUrl: String(piece.logoUrl ?? ""),
+        description: String(piece.description ?? ""),
+        category: "apps",
+        actions: [],
+        triggers: [],
+      }));
       const allPieces = [...popularPieces, ...transformedPieces];
       setPieces(allPieces);
     } catch (error) {
@@ -237,13 +262,18 @@ function FlowPieceSelector({
   const fetchPieceDetails = async (pieceName: string) => {
     try {
       setIsLoadingPieceDetails(true);
+      // Abort in-flight details fetch (if any)
+      if (detailsAbortRef.current) detailsAbortRef.current.abort();
+      detailsAbortRef.current = new AbortController();
       const normalizedPieceName = pieceName.startsWith("@activepieces/piece-")
         ? pieceName
         : `@activepieces/piece-${pieceName}`;
-      const apiUrl = `https://cloud.activepieces.com/api/v1/pieces/${normalizedPieceName}`;
-      const response = await fetch(apiUrl);
-      if (!response.ok) throw new Error("Failed to fetch piece details");
-      const pieceData = await response.json();
+      const response = await http.get(
+        `/pods/${encodePodsId(normalizedPieceName)}`,
+        
+      );
+      const pieceRoot = response.data as Record<string, unknown>;
+      const pieceData = (pieceRoot?.["data"] as Record<string, unknown> | undefined) || pieceRoot;
       const actions = pieceData.actions
         ? Object.entries(pieceData.actions).map(([key, action]) => {
             const actionData = action as Record<string, unknown>;
@@ -269,6 +299,7 @@ function FlowPieceSelector({
       const version =
         (pieceData.version as string) ||
         (pieceData.latestVersion as string) ||
+        (pieceData.release as string) ||
         undefined;
       return { actions, triggers, version };
     } catch (error) {
@@ -450,12 +481,28 @@ function FlowPieceSelector({
                 : `Select ${type}`}
             </h2>
           </div>
-          <button
-            onClick={handleClose}
-            className="p-1 hover:bg-theme-input-focus rounded-xl transition-all duration-200"
-          >
-            <X size={20} className="text-theme-primary" />
-          </button>
+          <div className="flex items-center gap-2">
+            {isLoadingPieceDetails && (
+              <button
+                onClick={() => {
+                  try {
+                    detailsAbortRef.current?.abort();
+                  } catch {
+                    /* noop */
+                  }
+                }}
+                className="px-2 py-1 text-xs rounded-xl bg-theme-input hover:bg-theme-input-focus text-theme-primary border border-white/20 dark:border-white/10"
+              >
+                Cancel
+              </button>
+            )}
+            <button
+              onClick={handleClose}
+              className="p-1 hover:bg-theme-input-focus rounded-xl transition-all duration-200"
+            >
+              <X size={20} className="text-theme-primary" />
+            </button>
+          </div>
         </div>
         <div className="p-4 border-b border-white/20 dark:border-white/10">
           <div className="relative">

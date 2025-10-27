@@ -111,22 +111,26 @@ export default function ConnectionsPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="h-full flex flex-col overflow-hidden gap-6 px-[1vw]">
       <ConnectionsToolbar onNew={() => setIsModalOpen(true)} />
 
-      {isLoading ? (
-        <div className="rounded-2xl border border-white/20 dark:border-white/10 bg-theme-form/95 backdrop-blur-md p-6 shadow-sm">
-          <p className="text-center text-theme-secondary">
-            Loading connections...
-          </p>
-        </div>
-      ) : (
-        <ConnectionsList
-          connections={connections}
-          onEdit={handleEditClick}
-          onDelete={handleDeleteClick}
-        />
-      )}
+      <div className="flex-1 overflow-hidden px-[1vw]">
+        {isLoading ? (
+          <div className="h-full rounded-2xl bg-theme-form/95 backdrop-blur-md p-6 flex items-center justify-center">
+            <p className="text-center text-theme-secondary">
+              Loading connections...
+            </p>
+          </div>
+        ) : (
+          <div className="h-full">
+            <ConnectionsList
+              connections={connections}
+              onEdit={handleEditClick}
+              onDelete={handleDeleteClick}
+            />
+          </div>
+        )}
+      </div>
 
       <ConnectionsModal
         isOpen={isModalOpen}
@@ -189,7 +193,7 @@ export default function ConnectionsPage() {
                 type="button"
                 onClick={handleDeleteConfirm}
                 disabled={isDeleting}
-                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#ef4a45] hover:bg-[#ef4a45]/80 px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-[#ef4a45]/20 disabled:cursor-not-allowed disabled:opacity-60 disabled:transform-none"
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-[#C43201] hover:bg-[#C43201]/80 px-5 py-2 text-sm font-semibold text-white transition-all duration-200 hover:scale-[1.02] focus:outline-none focus:ring-2 focus:ring-[#C43201]/20 disabled:cursor-not-allowed disabled:opacity-60 disabled:transform-none"
               >
                 {isDeleting ? "Deleting..." : "Delete"}
               </button>

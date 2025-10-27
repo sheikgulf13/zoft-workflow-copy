@@ -39,6 +39,23 @@ export type WorkflowNodeData = {
   onNodeClick?: (nodeId: string) => void;
   isEmpty?: boolean;
   name?: string; // internal identifier for validation payloads
+  validationErrors?: string[]; // names of missing required fields
+  optionProps?: string[];
+  optionPropsRequiredByName?: Record<string, boolean>;
+  optionPropTypesByName?: Record<string, string>;
+  optionPropRefreshersByName?: Record<string, string[]>;
+};
+
+const ValidationBadge: React.FC<{ errors?: string[] }> = ({ errors }) => {
+  if (!Array.isArray(errors) || errors.length === 0) return null;
+  const content = errors.length === 1 ? `Missing: ${errors[0]}` : `Missing: ${errors.join(", ")}`;
+  return (
+    <Tooltip className="absolute bottom-0 right-0" content={content}>
+      <div className="flex items-center justify-center w-5 h-5 rounded-full bg-theme-form/95 text-[#ef4a45]">
+        <AlertCircle size={12} className="text-[#ef4a45]" />
+      </div>
+    </Tooltip>
+  );
 };
 
 const NodeWrapper = memo(
@@ -79,9 +96,12 @@ const NodeWrapper = memo(
       }
     };
 
+    const hasValidation = Array.isArray(data.validationErrors) && data.validationErrors.length > 0;
     return (
       <div
-        className={`relative rounded-2xl border-2 shadow-sm transition-all duration-200 hover:shadow-lg cursor-pointer ${getStatusColor()}`}
+        className={`relative rounded-2xl border-1 shadow-sm transition-all duration-200 cursor-pointer zw-node ${getStatusColor()} ${hasValidation ? "border-[#ef4a45] bg-[#ef4a45]/5" : ""}`}
+        data-has-validation={hasValidation ? "1" : "0"}
+        aria-invalid={hasValidation ? true : undefined}
       >
         {children}
         {data.status && data.status !== "idle" && (
@@ -150,7 +170,7 @@ export const TriggerNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[180px] h-[70px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[180px] h-[70px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -168,13 +188,18 @@ export const TriggerNode = memo(
               {data.label}
             </span>
           </div>
-          {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
-                {data.description}
-              </div>
-            </Tooltip>
-          )}
+          <div className="relative">
+            {data.description && (
+              <Tooltip content={data.description} className="block w-full">
+                <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                  {data.description}
+                </div>
+              </Tooltip>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           <Handle
             type="source"
             position={Position.Right}
@@ -234,7 +259,7 @@ export const ActionNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[180px] h-[70px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[180px] h-[70px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -252,13 +277,18 @@ export const ActionNode = memo(
               {data.label}
             </span>
           </div>
-          {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
-                {data.description}
-              </div>
-            </Tooltip>
-          )}
+          <div className="relative">
+            {data.description && (
+              <Tooltip content={data.description} className="block w-full">
+                <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                  {data.description}
+                </div>
+              </Tooltip>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           <Handle
             type="source"
             position={Position.Right}
@@ -281,7 +311,7 @@ export const ConditionNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[180px] h-[70px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[180px] h-[70px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -296,8 +326,8 @@ export const ConditionNode = memo(
             </span>
           </div>
           {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
+            <Tooltip content={data.description} className="block w-full">
+              <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
                 {data.description}
               </div>
             </Tooltip>
@@ -338,13 +368,18 @@ export const DelayNode = memo(
               {data.label}
             </span>
           </div>
-          {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
-                {data.description}
-              </div>
-            </Tooltip>
-          )}
+          <div className="relative">
+            {data.description && (
+              <Tooltip content={data.description} className="block w-full">
+                <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                  {data.description}
+                </div>
+              </Tooltip>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           <Handle
             type="source"
             position={Position.Bottom}
@@ -367,7 +402,7 @@ export const RouterNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[200px] h-[86px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[200px] h-[86px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -381,13 +416,18 @@ export const RouterNode = memo(
               {data.label || "Router"}
             </span>
           </div>
-          {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
-                {data.description}
-              </div>
-            </Tooltip>
-          )}
+          <div className="relative">
+            {data.description && (
+              <Tooltip content={data.description} className="block w-full">
+                <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                  {data.description}
+                </div>
+              </Tooltip>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           {/* three outputs on bottom, one output on right */}
           <Handle
             id="route-1"
@@ -432,7 +472,7 @@ export const LoopNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[190px] h-[80px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[190px] h-[80px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -454,13 +494,18 @@ export const LoopNode = memo(
               {data.label || "Loop"}
             </span>
           </div>
-          {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
-                {data.description}
-              </div>
-            </Tooltip>
-          )}
+          <div className="relative">
+            {data.description && (
+              <Tooltip content={data.description} className="block w-full">
+                <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                  {data.description}
+                </div>
+              </Tooltip>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           <Handle
             id="loop-done"
             type="source"
@@ -492,7 +537,7 @@ export const RouterBranchNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[180px] h-[64px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[180px] h-[64px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -506,13 +551,18 @@ export const RouterBranchNode = memo(
               {data.label}
             </span>
           </div>
-          {data.description && (
-            <Tooltip content={data.description}>
-              <div className="text-xs text-theme-secondary truncate">
-                {data.description}
-              </div>
-            </Tooltip>
-          )}
+          <div className="relative">
+            {data.description && (
+              <Tooltip content={data.description} className="block w-full">
+                <div className="text-xs text-theme-secondary w-full max-w-full overflow-hidden text-ellipsis whitespace-nowrap">
+                  {data.description}
+                </div>
+              </Tooltip>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           {/* No side or bottom handles to force incoming-only from router */}
         </div>
       </NodeWrapper>
@@ -531,7 +581,7 @@ export const CodeNode = memo(
     return (
       <NodeWrapper data={data}>
         <div
-          className="p-3 w-[190px] h-[80px] hover:shadow-lg transition-all duration-200 flex flex-col justify-between"
+          className="relative p-3 w-[190px] h-[80px] transition-all duration-200 flex flex-col justify-between"
           onClick={handleClick}
         >
           <Handle
@@ -545,11 +595,16 @@ export const CodeNode = memo(
               {data.label || "Code"}
             </span>
           </div>
-          {data.description && (
-            <p className="text-xs text-theme-secondary line-clamp-2">
-              {data.description}
-            </p>
-          )}
+          <div className="relative">
+            {data.description && (
+              <p className="text-xs text-theme-secondary line-clamp-2">
+                {data.description}
+              </p>
+            )}
+            <div className="absolute bottom-0 right-0">
+              <ValidationBadge errors={data.validationErrors} />
+            </div>
+          </div>
           <Handle
             type="source"
             position={Position.Right}

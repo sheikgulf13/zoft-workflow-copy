@@ -1,7 +1,7 @@
 /* Theme CSS Variables */
 :root {
   /* Light Theme (default) */
-  --color-background: #ffffff;
+  --color-background: #f4f4f4; /* updated per requirement */
   --color-background-secondary: #f8fafc;
   --color-background-tertiary: #f1f5f9;
   --color-surface: #ffffff;

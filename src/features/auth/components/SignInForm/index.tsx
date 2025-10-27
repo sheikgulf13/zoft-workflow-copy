@@ -64,11 +64,11 @@ export default function SignInForm() {
   return (
     <form
       onSubmit={handleSubmit(onSubmit)}
-      className="space-y-5"
+      className="space-y-4"
       aria-live="polite"
     >
       <div>
-        <label className="mb-3 block text-sm font-semibold text-theme-primary">
+        <label className="mb-2 block text-sm font-semibold text-theme-primary">
           Email Address
         </label>
         <div className="relative group">
@@ -80,7 +80,7 @@ export default function SignInForm() {
           </div>
           <input
             type="email"
-            className="block w-full rounded-2xl bg-theme-input px-4 py-2.5 pl-12 text-theme-primary placeholder:text-theme-tertiary transition-all duration-200 focus:bg-theme-input-focus focus:ring-2 focus:ring-theme-primary/20 disabled:cursor-not-allowed disabled:opacity-60 text-base border-0"
+            className="block w-full rounded-lg !bg-white dark:bg-[#232b2b] px-4 py-2.5 pl-12 text-theme-primary placeholder:text-theme-tertiary transition-all duration-200 focus:bg-white dark:focus:bg-[#232b2b] focus:ring-2 focus:ring-[#b3a1ff] focus:border-[#b3a1ff] disabled:cursor-not-allowed disabled:opacity-60 text-base border !border-gray-300 dark:border-gray-600"
             placeholder="Enter your email"
             autoComplete="email"
             {...register("email")}
@@ -94,7 +94,7 @@ export default function SignInForm() {
       </div>
 
       <div>
-        <label className="mb-3 block text-sm font-semibold text-theme-primary">
+        <label className="mb-2 block text-sm font-semibold text-theme-primary">
           Password
         </label>
         <div className="relative group">
@@ -106,7 +106,7 @@ export default function SignInForm() {
           </div>
           <input
             type={showPassword ? "text" : "password"}
-            className="block w-full rounded-2xl bg-theme-input px-4 py-2.5 pl-12 pr-12 text-theme-primary placeholder:text-theme-tertiary transition-all duration-200 focus:bg-theme-input-focus focus:ring-2 focus:ring-theme-primary/20 disabled:cursor-not-allowed disabled:opacity-60 text-base border-0"
+            className="block w-full rounded-lg !bg-white dark:bg-[#232b2b] px-4 py-2.5 pl-12 pr-12 text-theme-primary placeholder:text-theme-tertiary transition-all duration-200 focus:bg-white dark:focus:bg-[#232b2b] focus:ring-2 focus:ring-[#b3a1ff] focus:border-[#b3a1ff] disabled:cursor-not-allowed disabled:opacity-60 text-base border !border-gray-300 dark:border-gray-600"
             placeholder="Enter your password"
             autoComplete="current-password"
             {...register("password")}
@@ -146,7 +146,7 @@ export default function SignInForm() {
       </div>
 
       <button
-        className="w-full bg-[#b3a1ff] hover:bg-[#a08fff] text-[#222222] font-semibold py-2.5 px-6 rounded-2xl transition-all duration-300 transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-60 disabled:transform-none text-base"
+        className="w-full bg-[#b3a1ff] hover:bg-[#a08fff] text-[#222222] font-semibold py-2 px-6 rounded-lg transition-all duration-300 transform hover:scale-[1.02] disabled:cursor-not-allowed disabled:opacity-60 disabled:transform-none text-sm"
         type="submit"
         disabled={isSubmitting}
       >

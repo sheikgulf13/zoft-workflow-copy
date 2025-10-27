@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { AuthActions, AuthState, AuthStore, SignInPayload } from './types'
-import { clearSession, persistSession, readSession } from './persistence'
+import { clearSession, persistSession, readSession, USER_SESSION_KEY } from './persistence'
 
 const initialState: AuthState = {
   user: null,
@@ -40,5 +40,28 @@ export const useAuthStore = create<AuthStore>((set, get) => ({
   ...initialState,
   ...createActions(set, get as () => AuthStore),
 }))
+
+// Cross-tab session sync: listen to storage events
+try {
+  window.addEventListener('storage', (e: StorageEvent) => {
+    if (e.key === USER_SESSION_KEY) {
+      // User object changed (sign-in/out in another tab)
+      const { user, accessToken } = readSession()
+      if (user && accessToken) {
+        useAuthStore.setState({ user, accessToken, isAuthenticated: true })
+      } else {
+        useAuthStore.setState({ user: null, accessToken: null, isAuthenticated: false })
+      }
+    }
+    if (e.key === 'zw_auth_event') {
+      const { user, accessToken } = readSession()
+      if (user && accessToken) {
+        useAuthStore.setState({ user, accessToken, isAuthenticated: true })
+      } else {
+        useAuthStore.setState({ user: null, accessToken: null, isAuthenticated: false })
+      }
+    }
+  })
+} catch { /* noop */ }
 
 
